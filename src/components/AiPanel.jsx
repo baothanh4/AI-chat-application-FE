@@ -428,12 +428,13 @@ const GanttTab = ({ tasks, loading }) => {
 };
 
 // ─────────────────────────── Main AiPanel ───────────────────────
-const AiPanel = ({ conversationId, onClose }) => {
+const AiPanel = ({ conversationId, onClose, stompClient, connected }) => {
   const [tab, setTab] = useState('summary');
   const [insight, setInsight] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState(null);
+  const [autoUpdated, setAutoUpdated] = useState(false); // badge khi AI tự cập nhật
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -456,8 +457,27 @@ const AiPanel = ({ conversationId, onClose }) => {
   useEffect(() => {
     setInsight(null);
     setTab('summary');
+    setAutoUpdated(false);
     loadInsight();
   }, [conversationId, loadInsight]);
+
+  // ── Subscribe WebSocket: auto-update khi backend push AI insight mới ──
+  useEffect(() => {
+    if (!stompClient || !connected || !conversationId) return;
+    const topic = `/topic/conversations/${conversationId}/ai`;
+    const sub = stompClient.subscribe(topic, (message) => {
+      try {
+        const newInsight = JSON.parse(message.body);
+        setInsight(newInsight);
+        setAutoUpdated(true);
+        // Hiện badge "Đã cập nhật" 4 giây rồi tắt
+        setTimeout(() => setAutoUpdated(false), 4000);
+      } catch (e) {
+        console.error('Failed to parse AI insight from WebSocket', e);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [stompClient, connected, conversationId]);
 
   const handleRefresh = async () => {
     if (!conversationId || refreshing) return;
@@ -494,12 +514,24 @@ const AiPanel = ({ conversationId, onClose }) => {
             <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Phân tích thông minh</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {autoUpdated && (
+            <span style={{
+              fontSize: 10,
+              background: 'rgba(16,185,129,0.2)',
+              color: '#10b981',
+              border: '1px solid rgba(16,185,129,0.4)',
+              borderRadius: 20,
+              padding: '2px 8px',
+              fontWeight: 600,
+              animation: 'fadeIn 0.3s ease',
+            }}>✓ Tự cập nhật</span>
+          )}
           <button
             onClick={handleRefresh}
             disabled={refreshing || loading}
             className="ai-refresh-btn"
-            title="Phân tích tin nhắn"
+            title="Phân tích thủ công"
           >
             <RefreshCw size={14} className={refreshing ? 'spin' : ''} />
             <span>{refreshing ? 'Đang phân tích...' : 'Phân tích'}</span>

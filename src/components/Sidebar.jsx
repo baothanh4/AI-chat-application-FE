@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, LogOut, MessageCircle, Settings, Bell, UserPlus, Check, X, Clock } from 'lucide-react';
+import { Plus, Search, LogOut, MessageCircle, Settings, Bell, UserPlus, Check, X, Clock, Bot } from 'lucide-react';
 import api from '../services/api';
 
 export const getConversationName = (conv, currentUser) => {
@@ -45,6 +45,10 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [showRequestsDropdown, setShowRequestsDropdown] = useState(false);
   
+  // AI Bot
+  const [botUser, setBotUser] = useState(null);
+  const [loadingBot, setLoadingBot] = useState(false);
+  
   const searchTimeoutRef = useRef(null);
   const searchContainerRef = useRef(null);
   const requestsContainerRef = useRef(null);
@@ -76,6 +80,19 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
   useEffect(() => {
     fetchIncomingRequests();
   }, [currentUser.id]);
+
+  // Fetch AI Bot user info
+  useEffect(() => {
+    const fetchBotUser = async () => {
+      try {
+        const res = await api.get('/users/bot');
+        setBotUser(res.data);
+      } catch (err) {
+        console.warn('AI Bot user not available', err);
+      }
+    };
+    fetchBotUser();
+  }, []);
 
   // STOMP subscription for friend requests
   useEffect(() => {
@@ -216,6 +233,33 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
         setSearchQuery('');
     } catch (err) {
         alert('Failed to start chat.');
+    }
+  };
+
+  const startChatWithBot = async () => {
+    if (!botUser || loadingBot) return;
+    // Check if already have a conversation with bot
+    const existing = conversations.find(c => c.type === 'PRIVATE' && c.members?.some(m => m.id === botUser.id));
+    if (existing) {
+      setActiveConversation(existing);
+      return;
+    }
+    setLoadingBot(true);
+    try {
+      const res = await api.post('/conversations/private', {
+        ownerId: currentUser.id,
+        recipientId: botUser.id
+      });
+      const newConv = res.data;
+      setConversations(prev => {
+        const filtered = prev.filter(c => c.id !== newConv.id);
+        return [newConv, ...filtered];
+      });
+      setActiveConversation(newConv);
+    } catch (err) {
+      alert('Không thể mở chat với AI Bot!');
+    } finally {
+      setLoadingBot(false);
     }
   };
 
@@ -402,12 +446,37 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
 
       {/* Recents list */}
       <div style={{ overflowY: 'auto', flex: 1 }}>
+      {/* AI Bot Button — luôn hiển thị ở đầu danh sách */}
+        {botUser && (
+          <div
+            className={`conversation-item ${activeConversation?.id && conversations.find(c => c.type === 'PRIVATE' && c.members?.some(m => m.id === botUser.id))?.id === activeConversation?.id ? 'active' : ''}`}
+            onClick={startChatWithBot}
+            style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(139,92,246,0.07)', cursor: loadingBot ? 'wait' : 'pointer' }}
+          >
+            <div className="avatar-wrapper">
+              <div className="avatar" style={{ background: 'linear-gradient(135deg, #8b5cf6, #06b6d4)', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Bot size={18} color="white" />
+              </div>
+              <span className="status-dot online" />
+            </div>
+            <div style={{ overflow: 'hidden', flex: 1 }}>
+              <div style={{ fontWeight: '600', fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#a78bfa' }}>
+                AI Assistant 🤖
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {loadingBot ? 'Đang kết nối...' : 'Nhắn "help" để xem lệnh'}
+              </div>
+            </div>
+          </div>
+        )}
         {conversations.length === 0 ? (
            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
              No conversations yet.<br/>Click the chat icon to DM someone.
            </div>
         ) : (
-           conversations.map(conv => {
+           conversations
+             .filter(conv => !botUser || !(conv.type === 'PRIVATE' && conv.members?.some(m => m.id === botUser.id)))
+             .map(conv => {
               const displayName = getConversationName(conv, currentUser);
               const presence = getOtherUserPresence(conv);
               
@@ -435,7 +504,7 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
                         {lastMessageMap[conv.id] ? (
                           <span style={{ color: unreadMap[conv.id] > 0 ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)', fontWeight: unreadMap[conv.id] > 0 ? '500' : 'normal' }}>
                             {lastMessageMap[conv.id].sender?.id === currentUser.id ? 'Bạn: ' : ''}
-                            {lastMessageMap[conv.id].content || (lastMessageMap[conv.id].imageUrl ? '📷 Ảnh' : '...')}
+                            {(lastMessageMap[conv.id].messageType === 'IMAGE' || lastMessageMap[conv.id].type === 'IMAGE') ? '📷 Ảnh' : (lastMessageMap[conv.id].content || '...')}
                           </span>
                         ) : presence ? (
                           presence.online 

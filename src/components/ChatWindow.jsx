@@ -21,7 +21,7 @@ const formatLastSeen = (lastSeenAt) => {
   return `${diffDays} ngày trước`;
 };
 
-const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = {} }) => {
+const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = {}, onNewAiInsight }) => {
   const { currentUser } = useAuth();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
@@ -488,6 +488,8 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
     {showAiPanel && activeConversation && (
       <AiPanel
         conversationId={activeConversation.id}
+        stompClient={stompClient}
+        connected={connected}
         onClose={() => setShowAiPanel(false)}
       />
     )}
