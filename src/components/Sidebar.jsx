@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, LogOut, MessageCircle, Settings, Bell, UserPlus, Check, X, Clock, Bot } from 'lucide-react';
+import { Plus, Search, LogOut, MessageCircle, Bell, UserPlus, Check, X, Clock, Bot } from 'lucide-react';
 import api from '../services/api';
 
 export const getConversationName = (conv, currentUser) => {
@@ -313,7 +313,14 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
       {/* Header */}
       <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div className="avatar" style={{ overflow: 'hidden', padding: 0 }}>
+          <div
+            className="avatar"
+            style={{ overflow: 'hidden', padding: 0, cursor: 'pointer', transition: 'opacity 0.2s' }}
+            title="Xem thông tin cá nhân"
+            onClick={() => navigate('/profile')}
+            onMouseEnter={e => e.currentTarget.style.opacity = '0.75'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+          >
              {currentUser.avatarPath ? (
                  <img src={currentUser.avatarPath} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
              ) : (
@@ -326,9 +333,6 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="icon-btn" title="Edit Profile" onClick={() => navigate('/profile')} style={{ background: 'transparent', border:'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-              <Settings size={20} />
-            </button>
             <button className="icon-btn" title="Logout" onClick={logout} style={{ background: 'transparent', border:'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
               <LogOut size={20} />
             </button>

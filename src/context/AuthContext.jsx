@@ -113,13 +113,46 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const changePassword = async (userId, oldPassword, newPassword, confirmNewPassword) => {
+    const res = await api.put(`/users/${userId}/password`, { oldPassword, newPassword, confirmNewPassword });
+    return res.data;
+  };
+
+  const disableFaceId = async (userId) => {
+    const res = await api.put(`/users/${userId}/face/disable`);
+    setCurrentUser(res.data);
+    return res.data;
+  };
+
+  const enableFaceId = async (userId) => {
+    const res = await api.put(`/users/${userId}/face/enable`);
+    setCurrentUser(res.data);
+    return res.data;
+  };
+
+  const deleteFaceId = async (userId) => {
+    const res = await api.delete(`/users/${userId}/face`);
+    setCurrentUser(res.data);
+    return res.data;
+  };
+
+  const updateFaceId = async (userId, faceBlob) => {
+    const formData = new FormData();
+    formData.append('faceImage', faceBlob, 'face-update.jpg');
+    const res = await api.post(`/users/${userId}/face`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    setCurrentUser(res.data);
+    return res.data;
+  };
+
   const logout = () => {
     setCurrentUser(null);
     localStorage.removeItem('chatUserId');
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, login, loginWithFace, register, registerWithFace, updateProfile, logout, loading }}>
+    <AuthContext.Provider value={{ currentUser, login, loginWithFace, register, registerWithFace, updateProfile, changePassword, disableFaceId, enableFaceId, deleteFaceId, updateFaceId, logout, loading }}>
         {!loading && children}
     </AuthContext.Provider>
   );

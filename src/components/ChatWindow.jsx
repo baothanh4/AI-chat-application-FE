@@ -21,7 +21,7 @@ const formatLastSeen = (lastSeenAt) => {
   return `${diffDays} ngày trước`;
 };
 
-const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = {}, onNewAiInsight }) => {
+const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = {}, onNewAiInsight, onMessagesChange }) => {
   const { currentUser } = useAuth();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
@@ -114,6 +114,11 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Expose messages to parent for AI context
+  useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
 
   // Cleanup image preview URL on unmount or change
   useEffect(() => {
@@ -391,37 +396,6 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Image Preview Overlay */}
-      {imagePreviewUrl && (
-        <div className="image-preview-overlay">
-          <div className="image-preview-container">
-            <button 
-              type="button" 
-              className="image-preview-close" 
-              onClick={handleCancelImage}
-              disabled={uploadingImage}
-            >
-              <X size={20} />
-            </button>
-            <img src={imagePreviewUrl} alt="Preview" className="image-preview-img" />
-            <div className="image-preview-actions">
-              <span className="image-preview-filename">{selectedImage?.name}</span>
-              <button 
-                type="button" 
-                className="image-preview-send"
-                onClick={handleSendImage}
-                disabled={uploadingImage}
-              >
-                {uploadingImage ? (
-                  <Loader2 size={20} className="spin" />
-                ) : (
-                  <Send size={18} style={{ marginLeft: '2px' }} />
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Lightbox for full-size image */}
       {lightboxUrl && (
@@ -443,7 +417,53 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
       />
 
       {/* Input Area */}
-      <div style={{ padding: '20px', background: 'rgba(15, 23, 42, 0.6)', borderTop: '1px solid var(--border-color)' }}>
+      <div style={{ padding: '12px 20px 20px', background: 'rgba(15, 23, 42, 0.6)', borderTop: '1px solid var(--border-color)' }}>
+        {/* Inline Image Preview Strip */}
+        {imagePreviewUrl && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px', padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '12px' }}>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <img
+                src={imagePreviewUrl}
+                alt="Preview"
+                style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: '8px', display: 'block' }}
+              />
+              {uploadingImage && (
+                <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Loader2 size={18} color="white" className="spin" />
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div style={{ fontSize: '13px', color: 'white', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {selectedImage?.name || 'Ảnh từ clipboard'}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {selectedImage ? `${(selectedImage.size / 1024).toFixed(0)} KB` : 'Ảnh'} · Sẵn sàng gửi
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={handleCancelImage}
+                disabled={uploadingImage}
+                title="Huỷ"
+                style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,255,255,0.08)', border: 'none', color: 'var(--text-muted)', cursor: uploadingImage ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={handleSendImage}
+                disabled={uploadingImage}
+                title="Gửi ảnh"
+                style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--accent-primary)', border: 'none', color: 'white', cursor: uploadingImage ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: uploadingImage ? 0.6 : 1 }}
+              >
+                {uploadingImage ? <Loader2 size={14} className="spin" /> : <Send size={14} style={{ marginLeft: '1px' }} />}
+              </button>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSend} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
             <button type="button" className="icon" style={{ position: 'absolute', left: '8px' }}>

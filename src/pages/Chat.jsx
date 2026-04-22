@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import ChatWindow from '../components/ChatWindow';
+import AiChatBot from '../components/AiChatBot';
 import { useAuth } from '../context/AuthContext';
 import { Client } from '@stomp/stompjs';
 import api from '../services/api';
@@ -15,6 +16,7 @@ const Chat = () => {
   const [presenceMap, setPresenceMap] = useState({}); // { [userId]: { online, lastSeenAt } }
   const [lastMessageMap, setLastMessageMap] = useState({}); // { [convId]: message }
   const [unreadMap, setUnreadMap] = useState({}); // { [convId]: count }
+  const [activeChatMessages, setActiveChatMessages] = useState([]); // For AI context
 
   useEffect(() => {
     // Fetch user's conversations inbox (includes last message + unread count)
@@ -204,6 +206,7 @@ const Chat = () => {
           stompClient={stompClient}
           connected={connected}
           presenceMap={presenceMap}
+          onMessagesChange={setActiveChatMessages}
         />
       </div>
     </div>
