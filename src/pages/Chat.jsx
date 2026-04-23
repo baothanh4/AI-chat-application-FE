@@ -105,7 +105,7 @@ const Chat = () => {
   useEffect(() => {
     // Generate full URL based on current host for relative proxy resolution in StompJS
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/websocket`;
 
     const client = new Client({
       brokerURL: wsUrl,
@@ -115,6 +115,9 @@ const Chat = () => {
       onConnect: () => {
         console.log('Connected to WebSocket!');
         setConnected(true);
+      },
+      onWebSocketError: (event) => {
+        console.error('WebSocket error:', event);
       },
       onStompError: (frame) => {
         console.error('Broker reported error: ' + frame.headers['message']);

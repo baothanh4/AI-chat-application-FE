@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles, Film } from 'lucide-react';
 import api from '../services/api';
 import clsx from 'clsx';
 import { getConversationName } from './Sidebar';
@@ -131,7 +131,11 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
 
   const handleSend = (e) => {
     e.preventDefault();
-    if (!inputText.trim() || !connected || !stompClient || !activeConversation) return;
+    if (!inputText.trim() || !stompClient || !activeConversation) return;
+    if (!connected) {
+      alert("Mất kết nối tới server! Vui lòng kiểm tra lại Backend.");
+      return;
+    }
 
     const clientMessageId = `msg-${Date.now()}`;
     const payload = {
@@ -161,20 +165,22 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
     setInputText('');
   };
 
-  // Handle image file selection
+  // Handle media file selection (image or video)
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Validate file type
-    if (!file.type.startsWith('image/')) {
-      alert('Chỉ cho phép file ảnh!');
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    if (!isImage && !isVideo) {
+      alert('Chỉ cho phép file ảnh hoặc video!');
       return;
     }
 
     // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
-      alert('Ảnh không được vượt quá 10MB!');
+      alert('File không được vượt quá 10MB!');
       return;
     }
 
@@ -218,29 +224,37 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
     setImagePreviewUrl(null);
   };
 
-  // Upload and send image
+  // Upload and send image or video
   const handleSendImage = async () => {
-    if (!selectedImage || !connected || !stompClient || !activeConversation) return;
+    if (!selectedImage || !stompClient || !activeConversation) return;
+    if (!connected) {
+      alert("Mất kết nối tới server! Vui lòng kiểm tra lại Backend.");
+      return;
+    }
     
     setUploadingImage(true);
     try {
-      // Step 1: Upload the image file
+      const isVideo = selectedImage.type.startsWith('video/');
+      const uploadEndpoint = isVideo ? '/uploads/chat-video' : '/uploads/chat-image';
+      const msgType = isVideo ? 'VIDEO' : 'IMAGE';
+
+      // Step 1: Upload the media file
       const formData = new FormData();
       formData.append('file', selectedImage);
 
-      const uploadRes = await api.post('/uploads/chat-image', formData, {
+      const uploadRes = await api.post(uploadEndpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
-      const imageUrl = uploadRes.data.url;
+      const mediaUrl = uploadRes.data.url;
 
-      // Step 2: Send the message with IMAGE type via STOMP
-      const clientMessageId = `img-${Date.now()}`;
+      // Step 2: Send the message via STOMP
+      const clientMessageId = `media-${Date.now()}`;
       const payload = {
         conversationId: activeConversation.id,
         senderId: currentUser.id,
-        content: imageUrl,
-        messageType: 'IMAGE',
+        content: mediaUrl,
+        messageType: msgType,
         clientMessageId: clientMessageId
       };
 
@@ -252,11 +266,11 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
       // Optimistically update UI
       setMessages(prev => [...prev, {
         id: clientMessageId,
-        content: imageUrl,
+        content: mediaUrl,
         sender: currentUser,
         clientMessageId: clientMessageId,
-        type: 'IMAGE',
-        messageType: 'IMAGE'
+        type: msgType,
+        messageType: msgType
       }]);
 
       // Clear preview
@@ -282,6 +296,16 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
           className="chat-image"
           onClick={() => setLightboxUrl(msg.content)}
           loading="lazy"
+        />
+      );
+    }
+    if (msgType === 'VIDEO') {
+      return (
+        <video 
+          src={msg.content} 
+          controls 
+          className="chat-video" 
+          style={{ maxWidth: '300px', maxHeight: '400px', borderRadius: '8px' }}
         />
       );
     }
@@ -385,7 +409,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
                                   {msg.sender.displayName || msg.sender.username}
                               </div>
                           )}
-                          <div className={clsx('message-bubble', isMe ? 'sent' : 'received', isImage && 'image-message')} style={{ marginBottom: 0 }}>
+                          <div className={clsx('message-bubble', isMe ? 'sent' : 'received', (isImage || msgType === 'VIDEO') && 'image-message')} style={{ marginBottom: 0 }}>
                              {renderMessageContent(msg)}
                           </div>
                       </div>
@@ -411,7 +435,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
       <input 
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         style={{ display: 'none' }}
         onChange={handleImageSelect}
       />
@@ -422,11 +446,18 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         {imagePreviewUrl && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px', padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '12px' }}>
             <div style={{ position: 'relative', flexShrink: 0 }}>
-              <img
-                src={imagePreviewUrl}
-                alt="Preview"
-                style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: '8px', display: 'block' }}
-              />
+              {selectedImage?.type?.startsWith('video/') ? (
+                <video
+                  src={imagePreviewUrl}
+                  style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: '8px', display: 'block' }}
+                />
+              ) : (
+                <img
+                  src={imagePreviewUrl}
+                  alt="Preview"
+                  style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: '8px', display: 'block' }}
+                />
+              )}
               {uploadingImage && (
                 <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Loader2 size={18} color="white" className="spin" />
@@ -438,7 +469,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
                 {selectedImage?.name || 'Ảnh từ clipboard'}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                {selectedImage ? `${(selectedImage.size / 1024).toFixed(0)} KB` : 'Ảnh'} · Sẵn sàng gửi
+                {selectedImage ? `${(selectedImage.size / 1024).toFixed(0)} KB` : 'File'} · Sẵn sàng gửi
               </div>
             </div>
             <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
@@ -455,7 +486,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
                 type="button"
                 onClick={handleSendImage}
                 disabled={uploadingImage}
-                title="Gửi ảnh"
+                title="Gửi"
                 style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--accent-primary)', border: 'none', color: 'white', cursor: uploadingImage ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: uploadingImage ? 0.6 : 1 }}
               >
                 {uploadingImage ? <Loader2 size={14} className="spin" /> : <Send size={14} style={{ marginLeft: '1px' }} />}
@@ -480,9 +511,18 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
             <button 
               type="button" 
               className="icon" 
+              style={{ position: 'absolute', right: '36px' }}
+              onClick={() => fileInputRef.current?.click()}
+              title="Gửi video"
+            >
+              <Film size={20} />
+            </button>
+            <button 
+              type="button" 
+              className="icon" 
               style={{ position: 'absolute', right: '8px' }}
               onClick={() => fileInputRef.current?.click()}
-              title="Gửi ảnh"
+              title="Gửi ảnh/video"
             >
               <ImageIcon size={20} />
             </button>
