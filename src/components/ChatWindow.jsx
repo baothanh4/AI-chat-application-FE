@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles, Film } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles, Film, Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed } from 'lucide-react';
 import api from '../services/api';
 import clsx from 'clsx';
 import { getConversationName } from './Sidebar';
 import AiPanel from './AiPanel';
+import { useCall } from '../context/CallContext';
 
 // Format "last seen" time
 const formatLastSeen = (lastSeenAt) => {
@@ -21,6 +22,34 @@ const formatLastSeen = (lastSeenAt) => {
   return `${diffDays} ngày trước`;
 };
 
+// Date dividers and timestamps
+const isDifferentDay = (d1, d2) => {
+  if (!d1 || !d2) return false;
+  const date1 = new Date(d1);
+  const date2 = new Date(d2);
+  return date1.getDate() !== date2.getDate() ||
+         date1.getMonth() !== date2.getMonth() ||
+         date1.getFullYear() !== date2.getFullYear();
+};
+
+const formatDateDivider = (d) => {
+  const date = new Date(d);
+  const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+  const day = days[date.getDay()];
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${day} ${dd}/${mm}/${yyyy}`;
+};
+
+const formatTime = (d) => {
+  if (!d) return '';
+  const date = new Date(d);
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+};
+
 const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = {}, onNewAiInsight, onMessagesChange }) => {
   const { currentUser } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -29,6 +58,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
   const messagesEndRef = useRef(null);
   const subscriptionRef = useRef(null);
   const fileInputRef = useRef(null);
+  const { startCall } = useCall();
 
   // AI Panel state
   const [showAiPanel, setShowAiPanel] = useState(false);
@@ -309,6 +339,80 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         />
       );
     }
+    
+    if (msgType === 'SYSTEM') {
+      if (msg.content?.startsWith('CALL_LOG|')) {
+        const parts = msg.content.split('|');
+        const callId = parts[1];
+        const mode = parts[2];
+        const status = parts[3];
+        const duration = parseInt(parts[4] || '0', 10);
+        const callerId = parts[5];
+        const calleeId = parts[6];
+
+        const amICaller = currentUser.id === callerId;
+        const isMissed = status === 'MISSED' || status === 'REJECTED';
+        const isMyMissed = isMissed && !amICaller;
+
+        let title = '';
+        if (isMyMissed) {
+          title = 'Bạn bị nhỡ';
+        } else {
+          const typeStr = mode === 'VIDEO' ? 'video ' : '';
+          title = amICaller ? `Cuộc gọi ${typeStr}đi` : `Cuộc gọi ${typeStr}đến`;
+        }
+
+        const mins = Math.floor(duration / 60);
+        const secs = duration % 60;
+        const durationStr = `${mins} phút ${secs} giây`;
+        
+        // Use standard coloring for missed calls and other calls
+        const iconColor = isMyMissed ? '#ef4444' : (amICaller ? 'var(--text-muted)' : '#10b981'); 
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: '160px', padding: '4px' }}>
+            <div style={{ fontWeight: '600', marginBottom: '8px', color: isMyMissed ? '#ef4444' : 'inherit' }}>
+              {title}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: isMyMissed ? '#ef4444' : 'var(--text-muted)' }}>
+              <div style={{ position: 'relative' }}>
+                {mode === 'VIDEO' ? <Video size={20} color={iconColor} /> : <Phone size={20} color={iconColor} />}
+                {/* Overlay arrow/status icon based on call type */}
+                {isMyMissed ? (
+                  <div style={{ position: 'absolute', top: -4, right: -4, background: 'var(--bg-dark)', borderRadius: '50%', padding: '2px' }}>
+                    <PhoneMissed size={10} color="#ef4444" />
+                  </div>
+                ) : amICaller ? (
+                  <div style={{ position: 'absolute', top: -4, right: -4, background: 'var(--bg-dark)', borderRadius: '50%', padding: '2px' }}>
+                    <PhoneOutgoing size={10} color="var(--text-muted)" />
+                  </div>
+                ) : (
+                  <div style={{ position: 'absolute', top: -4, right: -4, background: 'var(--bg-dark)', borderRadius: '50%', padding: '2px' }}>
+                    <PhoneIncoming size={10} color="#10b981" />
+                  </div>
+                )}
+              </div>
+              <span style={{ fontSize: '14px' }}>
+                {isMissed ? (mode === 'VIDEO' ? 'Cuộc gọi video' : 'Cuộc gọi thoại') : durationStr}
+              </span>
+            </div>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '8px', textAlign: 'center' }}>
+              <button 
+                onClick={(e) => {
+                   e.stopPropagation();
+                   startCall(amICaller ? calleeId : callerId, activeConversation.id, mode);
+                }}
+                style={{ background: 'transparent', border: 'none', color: '#60a5fa', fontWeight: '600', cursor: 'pointer', padding: '4px 12px', width: '100%' }}
+              >
+                Gọi lại
+              </button>
+            </div>
+          </div>
+        );
+      } else {
+        return <div style={{ fontStyle: 'italic', color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center', padding: '8px' }}>{msg.content}</div>;
+      }
+    }
 
     return msg.content;
   };
@@ -364,6 +468,25 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
             </div>
           )}
         </div>
+        {/* Call Buttons (Only for private chats) */}
+        {otherMember && (
+          <div style={{ display: 'flex', gap: '8px', marginRight: '12px', borderRight: '1px solid var(--border-color)', paddingRight: '16px' }}>
+            <button
+              onClick={() => startCall(otherMember.id, activeConversation.id, 'AUDIO')}
+              className="icon"
+              title="Audio Call"
+            >
+              <Phone size={20} />
+            </button>
+            <button
+              onClick={() => startCall(otherMember.id, activeConversation.id, 'VIDEO')}
+              className="icon"
+              title="Video Call"
+            >
+              <Video size={20} />
+            </button>
+          </div>
+        )}
         {/* AI Panel Toggle Button */}
         <button
           onClick={() => setShowAiPanel(v => !v)}
@@ -385,35 +508,69 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
             </div>
         ) : (
             messages.map((msg, idx) => {
+               const prevMsg = idx > 0 ? messages[idx - 1] : null;
+               const showDateDivider = idx === 0 || isDifferentDay(msg.createdAt, prevMsg?.createdAt);
+
                const isMe = msg.sender?.id === currentUser.id || msg.senderId === currentUser.id;
                const isGroup = activeConversation?.type === 'GROUP';
                const showSenderName = !isMe && isGroup && msg.sender;
                const msgType = msg.messageType || msg.type;
                const isImage = msgType === 'IMAGE';
+               const isSystem = msgType === 'SYSTEM';
+
+               // If it's a non-call-log system message, render it full width centered
+               if (isSystem && !msg.content?.startsWith('CALL_LOG|')) {
+                 return (
+                   <React.Fragment key={msg.id || idx}>
+                     {showDateDivider && (
+                       <div style={{ textAlign: 'center', margin: '24px 0' }}>
+                         <span style={{ background: 'var(--bg-panel-hover)', padding: '6px 14px', borderRadius: '16px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: '500' }}>
+                           {formatDateDivider(msg.createdAt)}
+                         </span>
+                       </div>
+                     )}
+                     <div className="animate-fade-in" style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+                        {renderMessageContent(msg)}
+                     </div>
+                   </React.Fragment>
+                 );
+               }
 
                return (
-                   <div key={msg.id || idx} className="animate-fade-in" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom: '12px', gap: '8px' }}>
-                      {!isMe && (
-                          <div className="avatar" style={{ width: '28px', height: '28px', padding: 0, overflow: 'hidden', flexShrink: 0 }}>
-                             {msg.sender?.avatarPath ? (
-                                <img src={msg.sender.avatarPath} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                             ) : (
-                                <span style={{ fontSize: '12px' }}>{msg.sender?.displayName?.charAt(0).toUpperCase() || 'U'}</span>
-                             )}
-                          </div>
-                      )}
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
-                          {showSenderName && (
-                              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', marginLeft: '4px' }}>
-                                  {msg.sender.displayName || msg.sender.username}
-                              </div>
-                          )}
-                          <div className={clsx('message-bubble', isMe ? 'sent' : 'received', (isImage || msgType === 'VIDEO') && 'image-message')} style={{ marginBottom: 0 }}>
-                             {renderMessageContent(msg)}
-                          </div>
-                      </div>
-                   </div>
+                   <React.Fragment key={msg.id || idx}>
+                     {showDateDivider && (
+                       <div style={{ textAlign: 'center', margin: '24px 0' }}>
+                         <span style={{ background: 'var(--bg-panel-hover)', padding: '6px 14px', borderRadius: '16px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: '500' }}>
+                           {formatDateDivider(msg.createdAt)}
+                         </span>
+                       </div>
+                     )}
+                     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom: '16px', gap: '8px' }}>
+                        {!isMe && (
+                            <div className="avatar" style={{ width: '28px', height: '28px', padding: 0, overflow: 'hidden', flexShrink: 0 }}>
+                               {msg.sender?.avatarPath ? (
+                                  <img src={msg.sender.avatarPath} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                               ) : (
+                                  <span style={{ fontSize: '12px' }}>{msg.sender?.displayName?.charAt(0).toUpperCase() || 'U'}</span>
+                               )}
+                            </div>
+                        )}
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
+                            {showSenderName && (
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', marginLeft: '4px' }}>
+                                    {msg.sender.displayName || msg.sender.username}
+                                </div>
+                            )}
+                            <div className={clsx('message-bubble', isMe ? 'sent' : 'received', (isImage || msgType === 'VIDEO') && 'image-message')} style={{ marginBottom: 0 }}>
+                               {renderMessageContent(msg)}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', paddingLeft: '4px', paddingRight: '4px' }}>
+                               {formatTime(msg.createdAt)}
+                            </div>
+                        </div>
+                     </div>
+                   </React.Fragment>
                )
             })
         )}

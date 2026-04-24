@@ -5,6 +5,7 @@ import AiChatBot from '../components/AiChatBot';
 import { useAuth } from '../context/AuthContext';
 import { Client } from '@stomp/stompjs';
 import api from '../services/api';
+import { CallProvider } from '../context/CallContext';
 
 const Chat = () => {
   const { currentUser } = useAuth();
@@ -105,7 +106,7 @@ const Chat = () => {
   useEffect(() => {
     // Generate full URL based on current host for relative proxy resolution in StompJS
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/websocket`;
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
 
     const client = new Client({
       brokerURL: wsUrl,
@@ -191,28 +192,30 @@ const Chat = () => {
   };
 
   return (
-    <div className="chat-layout animate-fade-in" style={{ padding: '24px' }}>
-      <div className="glass" style={{ display: 'flex', width: '100%', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
-        <Sidebar 
-          conversations={conversations} 
-          setConversations={setConversations}
-          activeConversation={activeConversation}
-          setActiveConversation={handleSetActiveConversation}
-          presenceMap={presenceMap}
-          stompClient={stompClient}
-          connected={connected}
-          lastMessageMap={lastMessageMap}
-          unreadMap={unreadMap}
-        />
-        <ChatWindow 
-          activeConversation={activeConversation}
-          stompClient={stompClient}
-          connected={connected}
-          presenceMap={presenceMap}
-          onMessagesChange={setActiveChatMessages}
-        />
+    <CallProvider stompClient={stompClient} connected={connected} currentUser={currentUser}>
+      <div className="chat-layout animate-fade-in" style={{ padding: '24px' }}>
+        <div className="glass" style={{ display: 'flex', width: '100%', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+          <Sidebar 
+            conversations={conversations} 
+            setConversations={setConversations}
+            activeConversation={activeConversation}
+            setActiveConversation={handleSetActiveConversation}
+            presenceMap={presenceMap}
+            stompClient={stompClient}
+            connected={connected}
+            lastMessageMap={lastMessageMap}
+            unreadMap={unreadMap}
+          />
+          <ChatWindow 
+            activeConversation={activeConversation}
+            stompClient={stompClient}
+            connected={connected}
+            presenceMap={presenceMap}
+            onMessagesChange={setActiveChatMessages}
+          />
+        </div>
       </div>
-    </div>
+    </CallProvider>
   );
 };
 
