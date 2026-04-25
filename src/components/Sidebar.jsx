@@ -4,30 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Search, LogOut, MessageCircle, Bell, UserPlus, Check, X, Clock, Bot, Users, UploadCloud, Loader2 } from 'lucide-react';
 import api from '../services/api';
 
-export const getConversationName = (conv, currentUser) => {
-    if (!conv) return 'Chat';
-    if (conv.type === 'PRIVATE' && conv.members) {
-        const otherMember = conv.members.find(m => m.id !== currentUser?.id);
-        return otherMember ? (otherMember.displayName || otherMember.username) : 'Private Chat';
-    }
-    return conv.name || 'Group Chat';
-};
+import { getConversationName, formatLastSeen, formatMessagePreview } from '../utils/chatUtils';
 
-// Format "last seen" time
-const formatLastSeen = (lastSeenAt) => {
-  if (!lastSeenAt) return '';
-  const now = new Date();
-  const seen = new Date(lastSeenAt);
-  const diffMs = now - seen;
-  const diffMin = Math.floor(diffMs / 60000);
-  
-  if (diffMin < 1) return 'Vừa xong';
-  if (diffMin < 60) return `${diffMin} phút trước`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours} giờ trước`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays} ngày trước`;
-};
 
 const Sidebar = ({ conversations, setConversations, activeConversation, setActiveConversation, presenceMap = {}, stompClient, connected, lastMessageMap = {}, unreadMap = {} }) => {
   const { currentUser, logout } = useAuth();
@@ -632,10 +610,7 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {lastMessageMap[conv.id] ? (
                           <span style={{ color: unreadMap[conv.id] > 0 ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)', fontWeight: unreadMap[conv.id] > 0 ? '500' : 'normal' }}>
-                            {lastMessageMap[conv.id].sender?.id === currentUser.id ? 'Bạn: ' : ''}
-                            {(lastMessageMap[conv.id].messageType === 'IMAGE' || lastMessageMap[conv.id].type === 'IMAGE') ? '📷 Ảnh' : 
-                             (lastMessageMap[conv.id].messageType === 'VIDEO' || lastMessageMap[conv.id].type === 'VIDEO') ? '🎥 Video' : 
-                             (lastMessageMap[conv.id].content || '...')}
+                            {formatMessagePreview(lastMessageMap[conv.id], currentUser)}
                           </span>
                         ) : presence ? (
                           presence.online 

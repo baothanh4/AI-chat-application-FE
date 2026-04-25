@@ -42,7 +42,6 @@ const inputStyle = {
 
 function AvatarEditor({ imageFile, onConfirm, onCancel }) {
   const canvasRef = useRef(null);
-  const containerRef = useRef(null);
   const imgRef = useRef(null);
   const stateRef = useRef({
     dragging: false,
@@ -54,14 +53,12 @@ function AvatarEditor({ imageFile, onConfirm, onCancel }) {
   });
   const animFrameRef = useRef(null);
   const [zoom, setZoom] = useState(1);
-  const SIZE = 340; // canvas size (square)
+  const SIZE = 400; // Larger canvas
 
-  // Load image once
   useEffect(() => {
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      // Fit image to fill canvas initially
       const scaleToFill = Math.max(SIZE / img.width, SIZE / img.height);
       stateRef.current.scale = scaleToFill;
       stateRef.current.offsetX = (SIZE - img.width * scaleToFill) / 2;
@@ -80,41 +77,36 @@ function AvatarEditor({ imageFile, onConfirm, onCancel }) {
     const ctx = canvas.getContext('2d');
     const { offsetX, offsetY, scale } = stateRef.current;
 
-    // Clear
     ctx.clearRect(0, 0, SIZE, SIZE);
-
-    // Draw image
     ctx.drawImage(img, offsetX, offsetY, img.width * scale, img.height * scale);
 
-    // Circular clip overlay
+    // Overlay
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.7)'; // Darker overlay
     ctx.beginPath();
     ctx.rect(0, 0, SIZE, SIZE);
-    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 2, 0, Math.PI * 2, true);
+    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 10, 0, Math.PI * 2, true);
     ctx.fill();
-    // Circle border
-    ctx.strokeStyle = 'rgba(99,102,241,0.8)';
-    ctx.lineWidth = 2;
+
+    // Dotted circle border
+    ctx.strokeStyle = 'white';
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 2, 0, Math.PI * 2);
+    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 10, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }, []);
 
-  // ── Pointer (mouse + touch) drag ──
   const onPointerDown = (e) => {
-    e.preventDefault();
     const s = stateRef.current;
     s.dragging = true;
     const pos = getPos(e);
     s.lastX = pos.x;
     s.lastY = pos.y;
-    canvasRef.current.style.cursor = 'grabbing';
   };
 
   const onPointerMove = (e) => {
-    e.preventDefault();
     const s = stateRef.current;
     if (!s.dragging) return;
     const pos = getPos(e);
@@ -127,70 +119,11 @@ function AvatarEditor({ imageFile, onConfirm, onCancel }) {
     animFrameRef.current = requestAnimationFrame(draw);
   };
 
-  const onPointerUp = () => {
-    stateRef.current.dragging = false;
-    if (canvasRef.current) canvasRef.current.style.cursor = 'grab';
-  };
-
-  // ── Scroll to zoom ──
-  const onWheel = (e) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.92 : 1.08;
-    applyZoom(delta);
-  };
-
-  // ── Touch pinch zoom ──
-  const lastTouchDistRef = useRef(null);
-  const onTouchStart = (e) => {
-    if (e.touches.length === 2) {
-      lastTouchDistRef.current = getTouchDist(e.touches);
-    } else {
-      onPointerDown(e.touches[0]);
-    }
-  };
-  const onTouchMove = (e) => {
-    e.preventDefault();
-    if (e.touches.length === 2) {
-      const dist = getTouchDist(e.touches);
-      if (lastTouchDistRef.current) {
-        applyZoom(dist / lastTouchDistRef.current);
-      }
-      lastTouchDistRef.current = dist;
-    } else {
-      onPointerMove(e.touches[0]);
-    }
-  };
-  const onTouchEnd = () => { lastTouchDistRef.current = null; onPointerUp(); };
-
-  const getTouchDist = (touches) => {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
+  const onPointerUp = () => { stateRef.current.dragging = false; };
 
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
-    const clientX = e.clientX ?? e.pageX;
-    const clientY = e.clientY ?? e.pageY;
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  };
-
-  const applyZoom = (delta) => {
-    const s = stateRef.current;
-    const img = imgRef.current;
-    if (!img) return;
-    const minScale = Math.max(SIZE / img.width, SIZE / img.height) * 0.5;
-    const maxScale = 5;
-    const newScale = Math.min(maxScale, Math.max(minScale, s.scale * delta));
-    // Zoom toward center
-    const cx = SIZE / 2, cy = SIZE / 2;
-    s.offsetX = cx - (cx - s.offsetX) * (newScale / s.scale);
-    s.offsetY = cy - (cy - s.offsetY) * (newScale / s.scale);
-    s.scale = newScale;
-    setZoom(newScale);
-    clampOffset();
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    animFrameRef.current = requestAnimationFrame(draw);
+    return { x: (e.clientX || e.touches[0].clientX) - rect.left, y: (e.clientY || e.touches[0].clientY) - rect.top };
   };
 
   const clampOffset = () => {
@@ -199,108 +132,64 @@ function AvatarEditor({ imageFile, onConfirm, onCancel }) {
     if (!img) return;
     const w = img.width * s.scale;
     const h = img.height * s.scale;
-    // Keep circle area (full canvas) always covered
-    if (w < SIZE) { s.offsetX = (SIZE - w) / 2; }
-    else {
-      s.offsetX = Math.min(0, Math.max(SIZE - w, s.offsetX));
-    }
-    if (h < SIZE) { s.offsetY = (SIZE - h) / 2; }
-    else {
-      s.offsetY = Math.min(0, Math.max(SIZE - h, s.offsetY));
-    }
+    const circleRadius = SIZE / 2 - 10;
+    const minX = SIZE / 2 + circleRadius - w;
+    const maxX = SIZE / 2 - circleRadius;
+    const minY = SIZE / 2 + circleRadius - h;
+    const maxY = SIZE / 2 - circleRadius;
+    
+    s.offsetX = Math.min(maxX, Math.max(minX, s.offsetX));
+    s.offsetY = Math.min(maxY, Math.max(minY, s.offsetY));
   };
 
   const handleConfirm = () => {
-    const canvas = canvasRef.current;
     const img = imgRef.current;
-    if (!canvas || !img) return;
-    // Render clean circle crop to off-screen canvas
+    if (!img) return;
     const out = document.createElement('canvas');
-    out.width = SIZE; out.height = SIZE;
+    out.width = 400; out.height = 400;
     const ctx = out.getContext('2d');
     const { offsetX, offsetY, scale } = stateRef.current;
-    // Clip to circle
+    
+    // Scale everything to 400x400
+    const finalScale = 400 / SIZE;
+    
     ctx.beginPath();
-    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2);
+    ctx.arc(200, 200, 200, 0, Math.PI * 2);
     ctx.clip();
-    ctx.drawImage(img, offsetX, offsetY, img.width * scale, img.height * scale);
-    out.toBlob(blob => { if (blob) onConfirm(blob, URL.createObjectURL(blob)); }, 'image/jpeg', 0.92);
+    ctx.drawImage(img, offsetX * finalScale, offsetY * finalScale, img.width * scale * finalScale, img.height * scale * finalScale);
+    out.toBlob(blob => { if (blob) onConfirm(blob, URL.createObjectURL(blob)); }, 'image/jpeg', 0.9);
   };
 
-  const zoomButtons = [
-    { icon: <ZoomIn size={18} />, action: () => applyZoom(1.15), title: 'Phóng to' },
-    { icon: <ZoomOut size={18} />, action: () => applyZoom(0.87), title: 'Thu nhỏ' },
-  ];
-
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-      <div className="glass animate-fade-in" style={{ borderRadius: '24px', padding: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', maxWidth: '420px', width: '100%' }}>
-        {/* Title */}
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontWeight: '700', fontSize: '18px', marginBottom: '4px' }}>
-            <Move size={20} color="var(--accent-primary)" />
-            Chỉnh ảnh đại diện
-          </div>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Kéo để di chuyển · Cuộn hoặc pinch để zoom</p>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#111827', borderRadius: '12px', width: '90%', maxWidth: '480px', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #374151', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: 'white' }}>Crop your new profile picture</h3>
+          <button onClick={onCancel} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '4px' }}>
+            <XCircle size={20} />
+          </button>
         </div>
-
-        {/* Canvas */}
-        <div ref={containerRef} style={{ position: 'relative', borderRadius: '50%', overflow: 'hidden', boxShadow: '0 0 0 3px rgba(99,102,241,0.5), 0 8px 32px rgba(0,0,0,0.5)' }}>
+        
+        <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', background: '#000' }}>
           <canvas
             ref={canvasRef}
             width={SIZE}
             height={SIZE}
-            style={{ display: 'block', cursor: 'grab', touchAction: 'none', borderRadius: '50%' }}
+            style={{ cursor: 'move', touchAction: 'none' }}
             onMouseDown={onPointerDown}
             onMouseMove={onPointerMove}
             onMouseUp={onPointerUp}
             onMouseLeave={onPointerUp}
-            onWheel={onWheel}
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
+            onTouchStart={onPointerDown}
+            onTouchMove={onPointerMove}
+            onTouchEnd={onPointerUp}
           />
         </div>
 
-        {/* Zoom controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {zoomButtons.map((btn, i) => (
-            <button key={i} onClick={btn.action} title={btn.title}
-              style={{ padding: '10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}>
-              {btn.icon}
-            </button>
-          ))}
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)', minWidth: '52px', textAlign: 'center' }}>
-            {Math.round(zoom * 100 / (imgRef.current ? Math.max(SIZE / imgRef.current.width, SIZE / imgRef.current.height) : 1))}%
-          </div>
-          {/* Zoom slider */}
-          <input type="range" min="50" max="300" value={Math.round(zoom * 100)} step="1"
-            onChange={e => {
-              const target = Number(e.target.value) / 100;
-              const img = imgRef.current;
-              if (!img) return;
-              const base = Math.max(SIZE / img.width, SIZE / img.height);
-              applyZoom(base * target / stateRef.current.scale);
-            }}
-            style={{ width: '100px', accentColor: 'var(--accent-primary)' }}
-          />
-        </div>
-
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
-          <button onClick={onCancel}
-            style={{ flex: 1, padding: '13px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', color: 'white', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.07)'}>
-            Huỷ
-          </button>
+        <div style={{ padding: '20px' }}>
           <button onClick={handleConfirm}
-            style={{ flex: 1, padding: '13px', background: 'var(--accent-primary)', border: 'none', borderRadius: '10px', color: 'white', fontWeight: '600', cursor: 'pointer', fontSize: '14px', boxShadow: '0 4px 16px rgba(99,102,241,0.3)' }}
-            onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
-            onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-            Áp dụng
+            style={{ width: '100%', padding: '12px', background: '#22c55e', border: 'none', borderRadius: '6px', color: 'white', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>
+            Set new profile picture
           </button>
         </div>
       </div>
@@ -359,7 +248,7 @@ function PasswordInput({ label, name, value, onChange, placeholder }) {
 }
 
 /* ──────────────────────── TAB 1: PROFILE INFO ───────────────────────── */
-function ProfileTab({ currentUser, updateProfile }) {
+function ProfileTab({ currentUser, updateProfile, removeAvatar }) {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     displayName: '', fullName: '', email: '',
@@ -367,10 +256,22 @@ function ProfileTab({ currentUser, updateProfile }) {
   });
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
-  const [rawImageFile, setRawImageFile] = useState(null); // file waiting for editor
+  const [rawImageFile, setRawImageFile] = useState(null);
   const [showEditor, setShowEditor] = useState(false);
-  const [status, setStatus] = useState(null); // { type, msg }
+  const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (currentUser) {
@@ -390,18 +291,31 @@ function ProfileTab({ currentUser, updateProfile }) {
 
   const handleChange = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
 
-  // When user picks a file → open editor instead of applying directly
   const handleFile = (e) => {
     const file = e.target.files[0];
-    e.target.value = ''; // reset so same file can be re-picked
+    e.target.value = '';
     if (!file) return;
-    if (file.size > 15 * 1024 * 1024) { setStatus({ type: 'error', msg: 'File ảnh phải nhỏ hơn 15MB.' }); return; }
     setRawImageFile(file);
     setShowEditor(true);
-    setStatus(null);
+    setShowDropdown(false);
   };
 
-  // User confirmed crop → get blob from editor
+  const handleRemovePhoto = async () => {
+    if (!window.confirm('Bạn có chắc muốn xóa ảnh đại diện?')) return;
+    try {
+      setLoading(true);
+      await removeAvatar(currentUser.id);
+      setAvatarPreview(null);
+      setAvatarFile(null);
+      setShowDropdown(false);
+      setStatus({ type: 'success', msg: 'Đã xóa ảnh đại diện.' });
+    } catch (err) {
+      setStatus({ type: 'error', msg: 'Lỗi khi xóa ảnh đại diện.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleEditorConfirm = (blob, previewUrl) => {
     setAvatarFile(new File([blob], 'avatar.jpg', { type: 'image/jpeg' }));
     setAvatarPreview(previewUrl);
@@ -429,7 +343,6 @@ function ProfileTab({ currentUser, updateProfile }) {
 
   return (
     <>
-      {/* Avatar Editor Modal */}
       {showEditor && rawImageFile && (
         <AvatarEditor
           imageFile={rawImageFile}
@@ -438,32 +351,61 @@ function ProfileTab({ currentUser, updateProfile }) {
         />
       )}
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {status && <Alert type={status.type}>{status.msg}</Alert>}
 
-        {/* Avatar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <label htmlFor="avatar-upload" style={{ cursor: 'pointer', flexShrink: 0, position: 'relative' }}>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '2px dashed rgba(255,255,255,0.2)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'opacity 0.2s' }}
-              onMouseEnter={e => e.currentTarget.style.opacity = '0.75'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-              {avatarPreview
-                ? <img src={avatarPreview} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : <UploadCloud color="rgba(255,255,255,0.4)" size={28} />}
+        {/* Profile Picture Section */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px' }}>
+          <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: 'white' }}>Profile picture</h4>
+          
+          <div style={{ position: 'relative', width: '160px' }}>
+            {/* Circular Avatar */}
+            <div style={{ width: '160px', height: '160px', borderRadius: '50%', background: '#1f2937', border: '1px solid #374151', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <User size={64} color="#4b5563" />
+              )}
             </div>
-            {/* Edit hint overlay */}
-            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(0,0,0,0)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: 'transparent', transition: 'all 0.2s', pointerEvents: 'none' }}
-              className="avatar-edit-hint" />
-          </label>
-          <input id="avatar-upload" type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
-          <div>
-            <div style={{ fontWeight: '600', fontSize: '14px' }}>Ảnh đại diện</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Click để chọn ảnh · Kéo &amp; zoom trong editor</div>
-            {avatarPreview && (
-              <button type="button" onClick={() => document.getElementById('avatar-upload').click()}
-                style={{ marginTop: '8px', padding: '5px 12px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '6px', color: '#818cf8', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
-                Chỉnh lại
+
+            {/* Edit Button */}
+            <div style={{ position: 'absolute', bottom: '-10px', left: '0' }} ref={dropdownRef}>
+              <button 
+                type="button"
+                onClick={() => setShowDropdown(!showDropdown)}
+                style={{ 
+                  display: 'flex', alignItems: 'center', gap: '8px', 
+                  background: '#111827', border: '1px solid #374151', borderRadius: '6px', 
+                  padding: '6px 12px', color: 'white', fontSize: '13px', fontWeight: '500', 
+                  cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' 
+                }}
+              >
+                <Camera size={14} />
+                Edit
               </button>
-            )}
+
+              {/* Dropdown Menu */}
+              {showDropdown && (
+                <div style={{ 
+                  position: 'absolute', top: '100%', left: 0, marginTop: '8px', 
+                  background: '#0a0a0a', border: '1px solid #1f2937', borderRadius: '8px', 
+                  width: '160px', padding: '4px', zIndex: 100, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.4)' 
+                }}>
+                  <label style={{ display: 'block', padding: '10px 12px', fontSize: '13px', color: '#e5e7eb', cursor: 'pointer', borderRadius: '4px' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#1f2937'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    Upload a photo...
+                    <input type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
+                  </label>
+                  <button type="button" onClick={handleRemovePhoto}
+                    style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '10px 12px', fontSize: '13px', color: '#e5e7eb', cursor: 'pointer', borderRadius: '4px' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#1f2937'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    Remove photo
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -838,7 +780,7 @@ function FaceIdTab({ currentUser, disableFaceId, enableFaceId, deleteFaceId, upd
 
 /* ─────────────────────────── MAIN PROFILE PAGE ──────────────────────── */
 const Profile = () => {
-  const { currentUser, updateProfile, changePassword, disableFaceId, enableFaceId, deleteFaceId, updateFaceId } = useAuth();
+  const { currentUser, updateProfile, removeAvatar, changePassword, disableFaceId, enableFaceId, deleteFaceId, updateFaceId } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const navigate = useNavigate();
 
@@ -879,7 +821,7 @@ const Profile = () => {
         </div>
 
         {/* Tab Content */}
-        {activeTab === 'profile' && <ProfileTab currentUser={currentUser} updateProfile={updateProfile} />}
+        {activeTab === 'profile' && <ProfileTab currentUser={currentUser} updateProfile={updateProfile} removeAvatar={removeAvatar} />}
         {activeTab === 'password' && <ChangePasswordTab currentUser={currentUser} changePassword={changePassword} />}
         {activeTab === 'face' && <FaceIdTab currentUser={currentUser} disableFaceId={disableFaceId} enableFaceId={enableFaceId} deleteFaceId={deleteFaceId} updateFaceId={updateFaceId} />}
       </div>

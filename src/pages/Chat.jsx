@@ -164,9 +164,21 @@ const Chat = () => {
            // Show browser notification if tab is hidden
            if (document.hidden || !activeConversation || activeConversation.id !== c.id) {
                if (Notification.permission === 'granted') {
+                   const getNotificationBody = (msg) => {
+                       const type = msg.messageType || msg.type;
+                       if (type === 'IMAGE') return '[Ảnh]';
+                       if (type === 'VIDEO') return '[Video]';
+                       if (type === 'SYSTEM' && msg.content?.startsWith('CALL_LOG|')) {
+                           const parts = msg.content.split('|');
+                           const mode = parts[2] === 'VIDEO' ? 'video' : 'thoại';
+                           return parts[3] === 'MISSED' || parts[3] === 'REJECTED' ? 'Cuộc gọi nhỡ' : `Cuộc gọi ${mode} đến`;
+                       }
+                       return msg.content;
+                   };
+
                    const notif = new Notification(`${parsed.sender.displayName}`, {
-                       body: parsed.content,
-                       icon: parsed.sender.avatarPath ? `http://localhost:8081${parsed.sender.avatarPath}` : '/favicon.ico'
+                       body: getNotificationBody(parsed),
+                       icon: parsed.sender.avatarPath ? parsed.sender.avatarPath : '/favicon.ico'
                    });
                    notif.onclick = () => {
                        window.focus();

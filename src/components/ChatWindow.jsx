@@ -1,54 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles, Film, Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles, Film, Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, Info } from 'lucide-react';
 import api from '../services/api';
 import clsx from 'clsx';
-import { getConversationName } from './Sidebar';
+import { getConversationName, formatLastSeen, formatDateDivider, isDifferentDay, formatTime } from '../utils/chatUtils';
 import AiPanel from './AiPanel';
+import ConversationInfo from './ConversationInfo';
 import { useCall } from '../context/CallContext';
 
-// Format "last seen" time
-const formatLastSeen = (lastSeenAt) => {
-  if (!lastSeenAt) return '';
-  const now = new Date();
-  const seen = new Date(lastSeenAt);
-  const diffMs = now - seen;
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'Vừa xong';
-  if (diffMin < 60) return `${diffMin} phút trước`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours} giờ trước`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays} ngày trước`;
-};
 
-// Date dividers and timestamps
-const isDifferentDay = (d1, d2) => {
-  if (!d1 || !d2) return false;
-  const date1 = new Date(d1);
-  const date2 = new Date(d2);
-  return date1.getDate() !== date2.getDate() ||
-         date1.getMonth() !== date2.getMonth() ||
-         date1.getFullYear() !== date2.getFullYear();
-};
-
-const formatDateDivider = (d) => {
-  const date = new Date(d);
-  const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-  const day = days[date.getDay()];
-  const dd = String(date.getDate()).padStart(2, '0');
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const yyyy = date.getFullYear();
-  return `${day} ${dd}/${mm}/${yyyy}`;
-};
-
-const formatTime = (d) => {
-  if (!d) return '';
-  const date = new Date(d);
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mm = String(date.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
-};
 
 const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = {}, onNewAiInsight, onMessagesChange }) => {
   const { currentUser } = useAuth();
@@ -60,8 +20,21 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
   const fileInputRef = useRef(null);
   const { startCall } = useCall();
 
-  // AI Panel state
+  // Side Panel state
   const [showAiPanel, setShowAiPanel] = useState(false);
+  const [showInfoPanel, setShowInfoPanel] = useState(false);
+
+  // Toggle AI Panel
+  const toggleAiPanel = () => {
+    setShowAiPanel(v => !v);
+    setShowInfoPanel(false); // Mutually exclusive
+  };
+
+  // Toggle Info Panel
+  const toggleInfoPanel = () => {
+    setShowInfoPanel(v => !v);
+    setShowAiPanel(false); // Mutually exclusive
+  };
 
   // Image preview state
   const [selectedImage, setSelectedImage] = useState(null); // File object
@@ -355,48 +328,50 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         const isMyMissed = isMissed && !amICaller;
 
         let title = '';
+        let CallIcon = Phone;
+        let iconColor = '';
+        let iconBg = '';
+
         if (isMyMissed) {
           title = 'Bạn bị nhỡ';
+          CallIcon = mode === 'VIDEO' ? Video : PhoneMissed;
+          iconColor = '#ef4444';
+          iconBg = 'rgba(239, 68, 68, 0.15)';
         } else {
           const typeStr = mode === 'VIDEO' ? 'video ' : '';
           title = amICaller ? `Cuộc gọi ${typeStr}đi` : `Cuộc gọi ${typeStr}đến`;
+          CallIcon = mode === 'VIDEO' ? Video : (amICaller ? PhoneOutgoing : PhoneIncoming);
+          iconColor = amICaller ? '#e2e8f0' : '#10b981';
+          iconBg = amICaller ? 'rgba(255, 255, 255, 0.1)' : 'rgba(16, 185, 129, 0.15)';
         }
 
         const mins = Math.floor(duration / 60);
         const secs = duration % 60;
         const durationStr = `${mins} phút ${secs} giây`;
-        
-        // Use standard coloring for missed calls and other calls
-        const iconColor = isMyMissed ? '#ef4444' : (amICaller ? 'var(--text-muted)' : '#10b981'); 
 
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: '160px', padding: '4px' }}>
-            <div style={{ fontWeight: '600', marginBottom: '8px', color: isMyMissed ? '#ef4444' : 'inherit' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: '180px', padding: '6px' }}>
+            <div style={{ fontWeight: '600', marginBottom: '10px', color: isMyMissed ? '#ef4444' : 'inherit' }}>
               {title}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: isMyMissed ? '#ef4444' : 'var(--text-muted)' }}>
-              <div style={{ position: 'relative' }}>
-                {mode === 'VIDEO' ? <Video size={20} color={iconColor} /> : <Phone size={20} color={iconColor} />}
-                {/* Overlay arrow/status icon based on call type */}
-                {isMyMissed ? (
-                  <div style={{ position: 'absolute', top: -4, right: -4, background: 'var(--bg-dark)', borderRadius: '50%', padding: '2px' }}>
-                    <PhoneMissed size={10} color="#ef4444" />
-                  </div>
-                ) : amICaller ? (
-                  <div style={{ position: 'absolute', top: -4, right: -4, background: 'var(--bg-dark)', borderRadius: '50%', padding: '2px' }}>
-                    <PhoneOutgoing size={10} color="var(--text-muted)" />
-                  </div>
-                ) : (
-                  <div style={{ position: 'absolute', top: -4, right: -4, background: 'var(--bg-dark)', borderRadius: '50%', padding: '2px' }}>
-                    <PhoneIncoming size={10} color="#10b981" />
-                  </div>
-                )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', color: isMyMissed ? '#ef4444' : 'var(--text-muted)' }}>
+              <div style={{ 
+                width: '36px', 
+                height: '36px', 
+                borderRadius: '50%', 
+                background: iconBg, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <CallIcon size={18} color={iconColor} />
               </div>
-              <span style={{ fontSize: '14px' }}>
+              <span style={{ fontSize: '14px', fontWeight: '500' }}>
                 {isMissed ? (mode === 'VIDEO' ? 'Cuộc gọi video' : 'Cuộc gọi thoại') : durationStr}
               </span>
             </div>
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '8px', textAlign: 'center' }}>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px', textAlign: 'center' }}>
               <button 
                 onClick={(e) => {
                    e.stopPropagation();
@@ -487,15 +462,29 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
             </button>
           </div>
         )}
-        {/* AI Panel Toggle Button */}
-        <button
-          onClick={() => setShowAiPanel(v => !v)}
-          className={`ai-toggle-btn ${showAiPanel ? 'active' : ''}`}
-          title="AI Insights"
-        >
-          <Sparkles size={16} />
-          <span>AI</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {/* AI Panel Toggle Button */}
+          <button
+            onClick={toggleAiPanel}
+            className={`ai-toggle-btn ${showAiPanel ? 'active' : ''}`}
+            title="AI Insights"
+          >
+            <Sparkles size={16} />
+            <span>AI</span>
+          </button>
+          {/* Info Panel Toggle Button */}
+          <button
+            onClick={toggleInfoPanel}
+            className="icon"
+            style={{ 
+              background: showInfoPanel ? 'var(--bg-panel-hover)' : 'transparent',
+              color: showInfoPanel ? 'var(--accent-primary)' : 'var(--text-muted)'
+            }}
+            title="Conversation Info"
+          >
+            <Info size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Messages Window */}
@@ -701,13 +690,21 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         </form>
       </div>
     </div>
-    {/* AI Panel */}
+    {/* Side Panels */}
     {showAiPanel && activeConversation && (
       <AiPanel
         conversationId={activeConversation.id}
         stompClient={stompClient}
         connected={connected}
         onClose={() => setShowAiPanel(false)}
+      />
+    )}
+    {showInfoPanel && activeConversation && (
+      <ConversationInfo
+        activeConversation={activeConversation}
+        currentUser={currentUser}
+        messages={messages}
+        onClose={() => setShowInfoPanel(false)}
       />
     )}
     </div>

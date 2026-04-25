@@ -113,6 +113,16 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const removeAvatar = async (userId) => {
+    try {
+      const res = await api.delete(`/users/${userId}/avatar`);
+      setCurrentUser(res.data);
+      return res.data;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const changePassword = async (userId, oldPassword, newPassword, confirmNewPassword) => {
     const res = await api.put(`/users/${userId}/password`, { oldPassword, newPassword, confirmNewPassword });
     return res.data;
@@ -152,7 +162,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, login, loginWithFace, register, registerWithFace, updateProfile, changePassword, disableFaceId, enableFaceId, deleteFaceId, updateFaceId, logout, loading }}>
+    <AuthContext.Provider value={{ currentUser, login, loginWithFace, register, registerWithFace, updateProfile, removeAvatar, changePassword, disableFaceId, enableFaceId, deleteFaceId, updateFaceId, logout, loading }}>
         {!loading && children}
     </AuthContext.Provider>
   );
