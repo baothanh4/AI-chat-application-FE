@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, LogOut, MessageCircle, Bell, UserPlus, Check, X, Clock, Bot, Users, UploadCloud, Loader2 } from 'lucide-react';
+import { Plus, Search, LogOut, MessageCircle, Bell, UserPlus, Check, X, Clock, Bot, Users, UploadCloud, Loader2, Shield, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 
 import { getConversationName, formatLastSeen, formatMessagePreview } from '../utils/chatUtils';
@@ -426,6 +426,26 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
           </div>
         </div>
     <div style={{ display: 'flex', gap: '8px' }}>
+            {currentUser.role === 'ADMIN' && (
+              <button
+                className="icon-btn"
+                title="Admin Panel"
+                onClick={() => navigate('/admin')}
+                style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171', cursor: 'pointer', borderRadius: '8px', padding: '6px' }}
+              >
+                <Shield size={18} />
+              </button>
+            )}
+            {(currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && (
+              <button
+                className="icon-btn"
+                title="Moderation"
+                onClick={() => navigate('/moderation')}
+                style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24', cursor: 'pointer', borderRadius: '8px', padding: '6px' }}
+              >
+                <AlertTriangle size={18} />
+              </button>
+            )}
             <button
               className="icon-btn"
               title="Tạo nhóm"

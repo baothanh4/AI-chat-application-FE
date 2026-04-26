@@ -11,14 +11,17 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const fetchUser = async () => {
+      const token = localStorage.getItem('chatToken');
       const storedUserId = localStorage.getItem('chatUserId');
-      if (storedUserId) {
+      
+      if (token && storedUserId) {
         try {
+          // Với JWT, ta vẫn fetch user bằng ID nhưng request này đã có token trong header
           const res = await api.get(`/users/${storedUserId}`);
           setCurrentUser(res.data);
         } catch (error) {
           console.error("Failed to fetch user", error);
-          localStorage.removeItem('chatUserId');
+          logout();
         }
       }
       setLoading(false);
@@ -30,8 +33,11 @@ export const AuthProvider = ({ children }) => {
   const login = async (username, password) => {
     try {
       const res = await api.post('/auth/login', { username, password });
-      setCurrentUser(res.data);
-      localStorage.setItem('chatUserId', res.data.id);
+      const { accessToken, user } = res.data;
+      
+      setCurrentUser(user);
+      localStorage.setItem('chatToken', accessToken);
+      localStorage.setItem('chatUserId', user.id);
       return res.data;
     } catch (error) {
       throw error;
@@ -46,8 +52,11 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/login/face', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setCurrentUser(res.data);
-      localStorage.setItem('chatUserId', res.data.id);
+      const { accessToken, user } = res.data;
+      
+      setCurrentUser(user);
+      localStorage.setItem('chatToken', accessToken);
+      localStorage.setItem('chatUserId', user.id);
       return res.data;
     } catch (error) {
       throw error;
@@ -56,7 +65,11 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
+      // Register usually returns UserResponse, not AuthResponse (token)
+      // So we might need to login after register or the backend returns token
       const res = await api.post('/auth/register', userData);
+      // Giả sử sau khi register xong, người dùng phải login để lấy token
+      // Hoặc nếu backend trả về UserResponse, ta set currentUser nhưng chưa có token
       setCurrentUser(res.data);
       localStorage.setItem('chatUserId', res.data.id);
       return res.data;

@@ -199,12 +199,18 @@ const Register = () => {
         submissionData.avatarPath = avatarPath;
       }
 
+      let registeredUser;
       if (useFaceRegistration) {
-        await registerWithFace(submissionData, faceBlob, avatarPath);
+        registeredUser = await registerWithFace(submissionData, faceBlob, avatarPath);
       } else {
-        await register(submissionData);
+        registeredUser = await register(submissionData);
       }
-      navigate('/');
+      
+      if (registeredUser && registeredUser.role === 'ADMIN') {
+        navigate('/admin');
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       if (err.response?.status === 409) {
         setError(err.response?.data?.message || 'This Username or Face ID is already registered to another account.');

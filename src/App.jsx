@@ -5,6 +5,9 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Chat from './pages/Chat';
 import Profile from './pages/Profile';
+import AdminDashboard from './pages/AdminDashboard';
+import ModerationPanel from './pages/ModerationPanel';
+import RoleProtectedRoute from './components/RoleProtectedRoute';
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -23,6 +26,16 @@ const AppRoutes = () => {
         <ProtectedRoute>
           <Profile />
         </ProtectedRoute>
+      } />
+      <Route path="/admin" element={
+        <RoleProtectedRoute allowedRoles={['ADMIN']}>
+          <AdminDashboard />
+        </RoleProtectedRoute>
+      } />
+      <Route path="/moderation" element={
+        <RoleProtectedRoute allowedRoles={['ADMIN', 'MODERATOR']}>
+          <ModerationPanel />
+        </RoleProtectedRoute>
       } />
       <Route path="/" element={
         <ProtectedRoute>

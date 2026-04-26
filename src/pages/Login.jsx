@@ -100,9 +100,13 @@ const Login = () => {
         setError(''); // Clear previous errors during new scan
         
         try {
-          await loginWithFace(blob);
+          const data = await loginWithFace(blob);
           stopCamera();
-          navigate('/');
+          if (data.user && data.user.role === 'ADMIN') {
+            navigate('/admin');
+          } else {
+            navigate('/');
+          }
         } catch (err) {
           if (err.response?.status === 401) {
             // Only retry automatically if it's explicitly unauthorized
@@ -132,8 +136,12 @@ const Login = () => {
     setError('');
     setIsSubmitting(true);
     try {
-      await login(username, password);
-      navigate('/');
+      const data = await login(username, password);
+      if (data.user && data.user.role === 'ADMIN') {
+        navigate('/admin');
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       setError('Invalid username or password.');
     } finally {
