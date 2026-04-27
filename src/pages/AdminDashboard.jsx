@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, Users, Settings, ArrowLeft, Activity, 
-  Zap, Globe, Cpu, HardDrive, BarChart3, Clock, Signal, Lock
+  Zap, Globe, Cpu, HardDrive, BarChart3, Clock, Signal, Lock,
+  Plus, Edit2, Trash2, MoreVertical, AlertTriangle, CheckCircle, XCircle, Search, Eye
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -23,6 +24,13 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [userLoading, setUserLoading] = useState(false);
   const [userQuery, setUserQuery] = useState('');
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+
+  // Moderation State
+  const [reports, setReports] = useState([]);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportFilter, setReportFilter] = useState('');
 
   // AI Policy State
   const [aiPolicy, setAiPolicy] = useState(null);
@@ -96,9 +104,23 @@ const AdminDashboard = () => {
     }
   };
 
+  // Fetch Reports
+  const fetchReports = async (status = '') => {
+    setReportLoading(true);
+    try {
+      const res = await api.get('/moderation/reports', { params: { status: status || undefined } });
+      setReports(res.data);
+    } catch (err) {
+      console.error('Failed to fetch reports', err);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'User Management') fetchUsers();
     if (activeTab === 'System Config') fetchAiPolicy();
+    if (activeTab === 'Moderation') fetchReports();
   }, [activeTab]);
 
   const handleLockUser = async (userId, lock) => {
@@ -108,6 +130,50 @@ const AdminDashboard = () => {
       setUsers(prev => prev.map(u => u.userId === userId ? { ...u, accountLocked: lock } : u));
     } catch (err) {
       alert('Failed to update user status');
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    try {
+      await api.delete(`/admin/users/${userId}`);
+      setUsers(prev => prev.filter(u => u.userId !== userId));
+      alert('User deleted successfully');
+    } catch (err) {
+      alert('Failed to delete user: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleSaveUser = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const userData = Object.fromEntries(formData.entries());
+    
+    // Convert checkbox
+    userData.accountLocked = formData.get('accountLocked') === 'on';
+
+    try {
+      if (selectedUser) {
+        await api.put(`/admin/users/${selectedUser.userId}`, userData);
+        alert('User updated successfully');
+      } else {
+        await api.post('/admin/users', userData);
+        alert('User created successfully');
+      }
+      setShowUserModal(false);
+      fetchUsers(userQuery);
+    } catch (err) {
+      alert('Failed to save user: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleUpdateReport = async (reportId, status, note) => {
+    try {
+      await api.patch(`/moderation/reports/${reportId}`, { status, moderatorNote: note });
+      fetchReports();
+      alert('Report updated successfully');
+    } catch (err) {
+      alert('Failed to update report');
     }
   };
 
@@ -156,6 +222,7 @@ const AdminDashboard = () => {
           {[
             { icon: BarChart3, label: 'Overview' },
             { icon: Users, label: 'User Management' },
+            { icon: ShieldCheck, label: 'Moderation' },
             { icon: Settings, label: 'System Config' },
             { icon: Activity, label: 'Logs & Audit' },
           ].map((item, i) => (
@@ -266,15 +333,33 @@ const AdminDashboard = () => {
 
         {activeTab === 'User Management' && (
           <div style={{ background: '#111827', borderRadius: '24px', border: '1px solid #1f2937', padding: '32px' }}>
-            <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
-              <input 
-                type="text" 
-                placeholder="Search by username or email..." 
-                value={userQuery}
-                onChange={(e) => setUserQuery(e.target.value)}
-                style={{ flex: 1, background: '#1f2937', border: '1px solid #374151', borderRadius: '12px', padding: '12px 16px', color: 'white' }}
-              />
+            <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input 
+                  type="text" 
+                  placeholder="Search by username or email..." 
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)}
+                  style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: '12px', padding: '12px 16px 12px 40px', color: 'white' }}
+                />
+              </div>
               <button onClick={() => fetchUsers(userQuery)} className="btn-primary" style={{ padding: '12px 24px', borderRadius: '12px' }}>Search</button>
+              <button 
+                onClick={() => { setSelectedUser(null); setShowUserModal(true); }}
+                style={{ 
+                  padding: '12px 24px', 
+                  borderRadius: '12px', 
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', 
+                  color: 'white',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <Plus size={18} /> Add User
+              </button>
             </div>
 
             {userLoading ? <div style={{ textAlign: 'center', padding: '40px' }}>Loading users...</div> : (
@@ -289,44 +374,148 @@ const AdminDashboard = () => {
                 </thead>
                 <tbody>
                   {users.map(user => (
-                    <tr key={user.userId} style={{ borderBottom: '1px solid #1f2937' }}>
+                    <tr key={user.userId} style={{ borderBottom: '1px solid #1f2937', transition: 'background 0.2s' }}>
                       <td style={{ padding: '16px' }}>
-                        <div style={{ fontWeight: '600' }}>{user.displayName}</div>
-                        <div style={{ fontSize: '12px', color: '#94a3b8' }}>@{user.username}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                            {user.displayName.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: '600' }}>{user.displayName}</div>
+                            <div style={{ fontSize: '12px', color: '#94a3b8' }}>@{user.username}</div>
+                          </div>
+                        </div>
                       </td>
                       <td style={{ padding: '16px' }}>
-                        <span style={{ padding: '4px 8px', borderRadius: '6px', background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', fontSize: '12px' }}>
+                        <span style={{ 
+                          padding: '4px 8px', 
+                          borderRadius: '6px', 
+                          background: user.role === 'ADMIN' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)', 
+                          color: user.role === 'ADMIN' ? '#ef4444' : '#818cf8', 
+                          fontSize: '11px',
+                          fontWeight: '700'
+                        }}>
                           {user.role}
                         </span>
                       </td>
                       <td style={{ padding: '16px' }}>
                         {user.accountLocked ? (
-                          <span style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '14px' }}>
                              <Lock size={14} /> Locked
                           </span>
                         ) : (
-                          <span style={{ color: '#10b981' }}>Active</span>
+                          <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '14px' }}>
+                             <CheckCircle size={14} /> Active
+                          </span>
                         )}
                       </td>
                       <td style={{ padding: '16px' }}>
-                        <button 
-                          onClick={() => handleLockUser(user.userId, !user.accountLocked)}
-                          style={{ 
-                            padding: '6px 12px', 
-                            borderRadius: '8px', 
-                            background: user.accountLocked ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
-                            color: user.accountLocked ? '#10b981' : '#ef4444',
-                            border: 'none',
-                            cursor: 'pointer'
-                          }}>
-                          {user.accountLocked ? 'Unlock' : 'Lock'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button 
+                            title="Edit User"
+                            onClick={() => { setSelectedUser(user); setShowUserModal(true); }}
+                            style={{ padding: '6px', borderRadius: '6px', background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', cursor: 'pointer' }}>
+                            <Edit2 size={16} />
+                          </button>
+                          <button 
+                            title={user.accountLocked ? 'Unlock User' : 'Lock User'}
+                            onClick={() => handleLockUser(user.userId, !user.accountLocked)}
+                            style={{ 
+                              padding: '6px', 
+                              borderRadius: '6px', 
+                              background: user.accountLocked ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+                              color: user.accountLocked ? '#10b981' : '#ef4444',
+                              cursor: 'pointer'
+                            }}>
+                            {user.accountLocked ? <Activity size={16} /> : <Lock size={16} />}
+                          </button>
+                          <button 
+                            title="Delete User"
+                            onClick={() => handleDeleteUser(user.userId)}
+                            style={{ padding: '6px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', cursor: 'pointer' }}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+          </div>
+        )}
+
+        {activeTab === 'Moderation' && (
+          <div style={{ background: '#111827', borderRadius: '24px', border: '1px solid #1f2937', padding: '32px' }}>
+             <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+                {['', 'OPEN', 'IN_REVIEW', 'RESOLVED', 'REJECTED'].map(status => (
+                  <button 
+                    key={status}
+                    onClick={() => { setReportFilter(status); fetchReports(status); }}
+                    style={{ 
+                      padding: '8px 16px', 
+                      borderRadius: '10px', 
+                      background: reportFilter === status ? '#6366f1' : '#1f2937',
+                      color: 'white',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      border: '1px solid #374151'
+                    }}
+                  >
+                    {status || 'All Reports'}
+                  </button>
+                ))}
+             </div>
+
+             {reportLoading ? <div style={{ textAlign: 'center', padding: '40px' }}>Loading reports...</div> : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
+                  {reports.length === 0 ? <div style={{ gridColumn: '1/-1', textAlign: 'center', color: '#94a3b8', padding: '40px' }}>No reports found</div> : reports.map(report => (
+                    <div key={report.id} style={{ background: '#1f2937', borderRadius: '16px', border: '1px solid #374151', padding: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                        <span style={{ 
+                          padding: '4px 8px', 
+                          borderRadius: '6px', 
+                          background: report.status === 'OPEN' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)', 
+                          color: report.status === 'OPEN' ? '#ef4444' : '#818cf8', 
+                          fontSize: '10px',
+                          fontWeight: '800'
+                        }}>
+                          {report.status}
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(report.createdAt).toLocaleString()}</span>
+                      </div>
+                      
+                      <div style={{ marginBottom: '16px' }}>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Reporter: <span style={{ color: '#fff' }}>@{report.reporterUsername}</span></div>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Reason: <span style={{ color: '#fff' }}>{report.reason}</span></div>
+                        <p style={{ fontSize: '14px', margin: '8px 0', color: '#e2e8f0', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px' }}>
+                          {report.details}
+                        </p>
+                      </div>
+
+                      {report.status === 'OPEN' || report.status === 'IN_REVIEW' ? (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button 
+                            onClick={() => handleUpdateReport(report.id, 'RESOLVED', 'Issue resolved by admin')}
+                            className="btn-success" style={{ flex: 1, padding: '8px', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600' }}>
+                            Resolve
+                          </button>
+                          <button 
+                            onClick={() => handleUpdateReport(report.id, 'REJECTED', 'Dismissed by admin')}
+                            style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', fontSize: '12px', fontWeight: '600' }}>
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ borderTop: '1px solid #374151', paddingTop: '12px', fontSize: '12px' }}>
+                          <div style={{ color: '#94a3b8' }}>Reviewed by: <span style={{ color: '#fff' }}>{report.reviewedByUsername || 'System'}</span></div>
+                          <div style={{ color: '#94a3b8' }}>Note: <span style={{ color: '#fff' }}>{report.moderatorNote}</span></div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+             )}
           </div>
         )}
 
@@ -355,6 +544,14 @@ const AdminDashboard = () => {
           </div>
         )}
       </div>
+
+      {showUserModal && (
+        <UserModal 
+          user={selectedUser} 
+          onClose={() => setShowUserModal(false)} 
+          onSave={handleSaveUser} 
+        />
+      )}
     </div>
   );
 };
@@ -381,5 +578,87 @@ const ResourceRow = ({ icon: Icon, label, value, color }) => (
     </div>
   </div>
 );
+
+const UserModal = ({ user, onClose, onSave }) => {
+  return (
+    <div style={{ 
+      position: 'fixed', 
+      inset: 0, 
+      background: 'rgba(0, 0, 0, 0.8)', 
+      backdropFilter: 'blur(8px)',
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center', 
+      zIndex: 1000,
+      padding: '20px'
+    }}>
+      <div style={{ 
+        background: '#111827', 
+        width: '100%', 
+        maxWidth: '500px', 
+        borderRadius: '24px', 
+        border: '1px solid #1f2937', 
+        padding: '32px',
+        position: 'relative',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+      }}>
+        <button onClick={onClose} style={{ position: 'absolute', top: '24px', right: '24px', color: '#94a3b8', background: 'transparent' }}>
+          <XCircle size={24} />
+        </button>
+        
+        <h2 style={{ fontSize: '24px', fontWeight: '800', marginBottom: '24px' }}>
+          {user ? 'Edit User' : 'Create New User'}
+        </h2>
+
+        <form onSubmit={onSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Username</label>
+              <input name="username" defaultValue={user?.username} required style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white' }} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Display Name</label>
+              <input name="displayName" defaultValue={user?.displayName} required style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Email Address</label>
+            <input type="email" name="email" defaultValue={user?.email} style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white' }} />
+          </div>
+
+          {!user && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Password</label>
+              <input type="password" name="password" required={!user} placeholder={user ? 'Leave blank to keep same' : ''} style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white' }} />
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Role</label>
+              <select name="role" defaultValue={user?.role || 'USER'} style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white' }}>
+                <option value="USER">USER</option>
+                <option value="MODERATOR">MODERATOR</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '20px' }}>
+              <input type="checkbox" name="accountLocked" defaultChecked={user?.accountLocked} style={{ width: '18px', height: '18px' }} />
+              <label style={{ fontSize: '14px', fontWeight: '600' }}>Account Locked</label>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: '12px', background: '#374151', color: 'white', fontWeight: '600' }}>Cancel</button>
+            <button type="submit" className="btn-primary" style={{ flex: 2, padding: '12px', borderRadius: '12px', fontWeight: '600' }}>
+              {user ? 'Update User' : 'Create User'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 export default AdminDashboard;

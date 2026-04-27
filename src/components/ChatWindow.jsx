@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles, Film, Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, Info } from 'lucide-react';
+import { 
+  Send, Image as ImageIcon, Smile, MessageCircle, X, Loader2, Sparkles, Film, 
+  Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, Info, 
+  Pin, ThumbsUp, Reply, Edit3, Trash, RotateCcw, MoreHorizontal, ChevronRight,
+  PlusCircle, Heart
+} from 'lucide-react';
 import api from '../services/api';
 import clsx from 'clsx';
 import { getConversationName, formatLastSeen, formatDateDivider, isDifferentDay, formatTime } from '../utils/chatUtils';
 import AiPanel from './AiPanel';
 import ConversationInfo from './ConversationInfo';
+import PinnedMessagesModal from './PinnedMessagesModal';
 import { useCall } from '../context/CallContext';
 
 
@@ -23,17 +29,26 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
   // Side Panel state
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
+  const [showPinnedModal, setShowPinnedModal] = useState(false);
+
+  // Pin state
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  const latestPin = pinnedMessages[0];
+
+  // Reply/Edit state
+  const [replyingTo, setReplyingTo] = useState(null); // ChatMessageResponse
+  const [editingMessage, setEditingMessage] = useState(null); // ChatMessageResponse
 
   // Toggle AI Panel
   const toggleAiPanel = () => {
     setShowAiPanel(v => !v);
-    setShowInfoPanel(false); // Mutually exclusive
+    setShowInfoPanel(false); 
   };
 
   // Toggle Info Panel
   const toggleInfoPanel = () => {
     setShowInfoPanel(v => !v);
-    setShowAiPanel(false); // Mutually exclusive
+    setShowAiPanel(false);
   };
 
   // Image preview state
@@ -84,34 +99,62 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
     if (!connected || !stompClient || !activeConversation) return;
 
     const destination = `/topic/conversations/${activeConversation.id}`;
+    const mutationDest = `/topic/conversations/${activeConversation.id}/messages.mutated`;
+    const pinDest = `/topic/conversations/${activeConversation.id}/messages.pinned`;
     
-    // Subscribe to this room
+    // 1. Subscribe to new messages
     const subscription = stompClient.subscribe(destination, (message) => {
         if (message.body) {
             const newMsg = JSON.parse(message.body);
             setMessages(prev => {
-                // STOMP subscriptions occasionally overlap before cleanup finishes. 
-                // Guard: Only render messages matching the EXACT CURRENT UI active conversation!
-                // We MUST use activeChatIdRef.current to avoid Javascript stale closures.
-                if (newMsg.conversationId && newMsg.conversationId !== activeChatIdRef.current) {
-                    return prev;
-                }
-
-                // Prevent duplicate client messages
-                if (prev.find(m => m.id === newMsg.id || (newMsg.clientMessageId && m.clientMessageId === newMsg.clientMessageId))) {
-                    return prev;
-                }
+                if (newMsg.conversationId && newMsg.conversationId !== activeChatIdRef.current) return prev;
+                if (prev.find(m => m.id === newMsg.id || (newMsg.clientMessageId && m.clientMessageId === newMsg.clientMessageId))) return prev;
                 return [...prev, newMsg];
             });
         }
     });
 
-    return () => {
-        if (subscription) {
-            subscription.unsubscribe();
+    // 2. Subscribe to mutations (Edit, Delete, Unsend, Reaction)
+    const mutationSub = stompClient.subscribe(mutationDest, (message) => {
+        if (message.body) {
+            const event = JSON.parse(message.body);
+            const updatedMsg = event.message;
+            setMessages(prev => prev.map(m => m.id === updatedMsg.id ? updatedMsg : m));
         }
+    });
+
+    // 3. Subscribe to pin changes
+    const pinSub = stompClient.subscribe(pinDest, (message) => {
+        if (message.body) {
+            const event = JSON.parse(message.body);
+            const updatedMsg = event.message;
+            
+            // Update messages list
+            setMessages(prev => prev.map(m => m.id === updatedMsg.id ? updatedMsg : m));
+            
+            // Update pinned list
+            if (event.eventType === 'MESSAGE_PINNED') {
+                setPinnedMessages(prev => [updatedMsg, ...prev.filter(p => p.id !== updatedMsg.id)]);
+            } else {
+                setPinnedMessages(prev => prev.filter(p => p.id !== updatedMsg.id));
+            }
+        }
+    });
+
+    return () => {
+        subscription.unsubscribe();
+        mutationSub.unsubscribe();
+        pinSub.unsubscribe();
     };
   }, [connected, stompClient, activeConversation]);
+
+  // Initial fetch for pinned messages
+  useEffect(() => {
+    if (!activeConversation || !currentUser) return;
+    api.get(`/messages/conversations/${activeConversation.id}/pinned`, { params: { actorUserId: currentUser.id } })
+       .then(res => setPinnedMessages(res.data))
+       .catch(err => console.error("Failed to fetch pins", err));
+  }, [activeConversation, currentUser]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -132,39 +175,109 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
     };
   }, [imagePreviewUrl]);
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
     if (!inputText.trim() || !stompClient || !activeConversation) return;
     if (!connected) {
-      alert("Mất kết nối tới server! Vui lòng kiểm tra lại Backend.");
+      alert("Mất kết nối tới server!");
       return;
     }
 
+    const content = inputText.trim();
     const clientMessageId = `msg-${Date.now()}`;
-    const payload = {
-      conversationId: activeConversation.id,
-      senderId: currentUser.id,
-      content: inputText,
-      messageType: 'TEXT',
-      clientMessageId: clientMessageId
-    };
 
-    // Stomp send
-    stompClient.publish({
-        destination: '/app/chat.send',
-        body: JSON.stringify(payload)
-    });
+    try {
+      if (editingMessage) {
+        // Handle Edit
+        await api.patch(`/messages/${editingMessage.id}/edit`, { 
+          actorUserId: currentUser.id,
+          content 
+        });
+        setEditingMessage(null);
+      } else if (replyingTo) {
+        // Handle Reply
+        await api.post(`/messages/${replyingTo.id}/reply`, {
+          actorUserId: currentUser.id,
+          content,
+          clientMessageId
+        });
+        setReplyingTo(null);
+      } else {
+        // Regular Send
+        const payload = {
+          conversationId: activeConversation.id,
+          senderId: currentUser.id,
+          content,
+          messageType: 'TEXT',
+          clientMessageId
+        };
+        stompClient.publish({
+          destination: '/app/chat.send',
+          body: JSON.stringify(payload)
+        });
 
-    // Optimistically update UI
-    setMessages(prev => [...prev, {
-       id: clientMessageId, // temporary id
-       content: inputText,
-       sender: currentUser,
-       clientMessageId: clientMessageId,
-       type: 'TEXT',
-       messageType: 'TEXT'
-    }]);
+        // Optimistic UI only for new messages
+        setMessages(prev => [...prev, {
+          id: clientMessageId,
+          content,
+          sender: currentUser,
+          clientMessageId,
+          type: 'TEXT',
+          messageType: 'TEXT',
+          createdAt: new Date().toISOString()
+        }]);
+      }
+      setInputText('');
+    } catch (err) {
+      alert("Gửi tin nhắn thất bại!");
+    }
+  };
 
+  // Message Mutation Actions
+  const handlePinMessage = async (msgId, isPinned) => {
+    try {
+      const endpoint = isPinned ? `/messages/${msgId}/unpin` : `/messages/${msgId}/pin`;
+      await api.patch(endpoint, { actorUserId: currentUser.id });
+    } catch (err) { console.error("Failed to toggle pin", err); }
+  };
+
+  const handleReactMessage = async (msgId, emoji) => {
+    try {
+      await api.put(`/messages/${msgId}/reaction`, { 
+        actorUserId: currentUser.id, 
+        emoji 
+      });
+    } catch (err) { console.error("Failed to react", err); }
+  };
+
+  const handleRemoveReaction = async (msgId) => {
+    try {
+      await api.delete(`/messages/${msgId}/reaction`, { params: { actorUserId: currentUser.id } });
+    } catch (err) { console.error("Failed to remove reaction", err); }
+  };
+
+  const handleUnsendMessage = async (msgId) => {
+    try {
+      await api.patch(`/messages/${msgId}/unsend`, { actorUserId: currentUser.id });
+    } catch (err) { alert("Không thể thu hồi tin nhắn!"); }
+  };
+
+  const handleDeleteMessage = async (msgId) => {
+    if (!window.confirm("Xóa tin nhắn này với mọi người?")) return;
+    try {
+      await api.delete(`/messages/${msgId}`, { data: { actorUserId: currentUser.id } });
+    } catch (err) { alert("Không thể xóa tin nhắn!"); }
+  };
+
+  const startEditMessage = (msg) => {
+    setEditingMessage(msg);
+    setReplyingTo(null);
+    setInputText(msg.content);
+  };
+
+  const startReplyMessage = (msg) => {
+    setReplyingTo(msg);
+    setEditingMessage(null);
     setInputText('');
   };
 
@@ -487,6 +600,28 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         </div>
       </div>
 
+      {/* Pinned Messages Bar */}
+      {latestPin && (
+        <div style={{ 
+          padding: '8px 20px', 
+          background: 'rgba(59, 130, 246, 0.1)', 
+          borderBottom: '1px solid rgba(59, 130, 246, 0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          cursor: 'pointer'
+        }} onClick={() => setShowPinnedModal(true)}>
+          <Pin size={14} color="#3b82f6" />
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+             <div style={{ fontSize: '11px', fontWeight: '700', color: '#3b82f6', textTransform: 'uppercase' }}>Tin nhắn đã ghim</div>
+             <div style={{ fontSize: '13px', color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+               {latestPin.content}
+             </div>
+          </div>
+          <ChevronRight size={16} color="rgba(255,255,255,0.4)" />
+        </div>
+      )}
+
       {/* Messages Window */}
       <div style={{ flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         {loading ? (
@@ -545,17 +680,117 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
                             </div>
                         )}
                         
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '70%', position: 'relative' }}>
                             {showSenderName && (
                                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', marginLeft: '4px' }}>
                                     {msg.sender.displayName || msg.sender.username}
                                 </div>
                             )}
-                            <div className={clsx('message-bubble', isMe ? 'sent' : 'received', (isImage || msgType === 'VIDEO') && 'image-message')} style={{ marginBottom: 0 }}>
-                               {renderMessageContent(msg)}
+
+                            {/* Reply Preview in Bubble */}
+                            {msg.replyToMessageId && (
+                              <div style={{ 
+                                background: 'rgba(255,255,255,0.05)', 
+                                padding: '8px 12px', 
+                                borderRadius: '12px', 
+                                borderLeft: '3px solid #3b82f6',
+                                marginBottom: '-8px',
+                                paddingBottom: '16px',
+                                fontSize: '12px',
+                                opacity: 0.8,
+                                maxWidth: '100%'
+                              }}>
+                                <div style={{ fontWeight: '700', color: '#3b82f6', marginBottom: '2px' }}>Phản hồi</div>
+                                <div style={{ color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  Tin nhắn #{msg.replyToMessageId.substring(0, 8)}...
+                                </div>
+                              </div>
+                            )}
+
+                            <div className={clsx('message-bubble', isMe ? 'sent' : 'received', (isImage || msgType === 'VIDEO') && 'image-message')} style={{ marginBottom: 0, position: 'relative' }}>
+                               {msg.pinned && (
+                                 <div style={{ position: 'absolute', top: '-8px', right: isMe ? 'auto' : '-8px', left: isMe ? '-8px' : 'auto', background: '#3b82f6', padding: '4px', borderRadius: '50%', border: '2px solid var(--bg-dark)' }}>
+                                   <Pin size={10} color="white" />
+                                 </div>
+                               )}
+                               
+                               {msg.unsent ? (
+                                 <div style={{ fontStyle: 'italic', opacity: 0.5 }}>Tin nhắn đã được thu hồi</div>
+                               ) : msg.deletedForEveryone ? (
+                                 <div style={{ fontStyle: 'italic', opacity: 0.5 }}>Tin nhắn đã bị xóa</div>
+                               ) : renderMessageContent(msg)}
+
+                               {/* Quick Actions (Hover) */}
+                               {!msg.unsent && !msg.deletedForEveryone && (
+                                 <div className="message-actions-hover" style={{ 
+                                   position: 'absolute', 
+                                   top: '50%', 
+                                   transform: 'translateY(-50%)',
+                                   [isMe ? 'right' : 'left']: 'calc(100% + 12px)',
+                                   display: 'flex',
+                                   gap: '4px',
+                                   background: 'rgba(15, 23, 42, 0.8)',
+                                   padding: '4px',
+                                   borderRadius: '10px',
+                                   border: '1px solid rgba(255,255,255,0.1)',
+                                   opacity: 0,
+                                   transition: 'opacity 0.2s',
+                                   zIndex: 10
+                                 }}>
+                                   <button onClick={() => startReplyMessage(msg)} title="Trả lời"><Reply size={14} /></button>
+                                   <button onClick={() => handlePinMessage(msg.id, msg.pinned)} title={msg.pinned ? "Bỏ ghim" : "Ghim"}><Pin size={14} color={msg.pinned ? "#3b82f6" : "currentColor"} /></button>
+                                   <button onClick={(e) => {
+                                      // Toggle Reaction Picker
+                                      const emojis = ['👍', '❤️', '😂', '😮', '😢', '😡'];
+                                      const emoji = window.prompt("Chọn emoji: " + emojis.join(" "));
+                                      if (emoji && emojis.includes(emoji)) handleReactMessage(msg.id, emoji);
+                                   }} title="Thả cảm xúc"><ThumbsUp size={14} /></button>
+                                   {isMe && (
+                                     <>
+                                       <button onClick={() => startEditMessage(msg)} title="Chỉnh sửa"><Edit3 size={14} /></button>
+                                       <button onClick={() => handleUnsendMessage(msg.id)} title="Thu hồi"><RotateCcw size={14} /></button>
+                                     </>
+                                   )}
+                                   <button onClick={() => handleDeleteMessage(msg.id)} title="Xóa"><Trash size={14} color="#ef4444" /></button>
+                                 </div>
+                               )}
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', paddingLeft: '4px', paddingRight: '4px' }}>
+
+                            {/* Reactions Display */}
+                            {msg.reactions && msg.reactions.length > 0 && (
+                              <div style={{ 
+                                display: 'flex', 
+                                gap: '4px', 
+                                marginTop: '-10px', 
+                                zIndex: 5,
+                                alignSelf: isMe ? 'flex-end' : 'flex-start',
+                                marginLeft: isMe ? 0 : '8px',
+                                marginRight: isMe ? '8px' : 0
+                              }}>
+                                {msg.reactions.map(r => (
+                                  <div key={r.emoji} 
+                                    onClick={() => r.userIds.includes(currentUser.id) ? handleRemoveReaction(msg.id) : handleReactMessage(msg.id, r.emoji)}
+                                    style={{ 
+                                      background: r.userIds.includes(currentUser.id) ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.1)', 
+                                      border: r.userIds.includes(currentUser.id) ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
+                                      padding: '2px 6px', 
+                                      borderRadius: '12px', 
+                                      fontSize: '11px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      cursor: 'pointer'
+                                    }}>
+                                    <span>{r.emoji}</span>
+                                    <span style={{ fontWeight: '700' }}>{r.count}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', paddingLeft: '4px', paddingRight: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                {formatTime(msg.createdAt)}
+                               {msg.edited && <span style={{ fontSize: '10px', opacity: 0.6 }}>• Đã chỉnh sửa</span>}
                             </div>
                         </div>
                      </div>
@@ -588,6 +823,35 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
 
       {/* Input Area */}
       <div style={{ padding: '12px 20px 20px', background: 'rgba(15, 23, 42, 0.6)', borderTop: '1px solid var(--border-color)' }}>
+        
+        {/* Reply Bar */}
+        {replyingTo && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', padding: '10px 16px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '12px', borderLeft: '4px solid #3b82f6' }}>
+            <Reply size={16} color="#3b82f6" />
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div style={{ fontSize: '12px', fontWeight: '700', color: '#3b82f6' }}>Đang trả lời @{replyingTo.sender.username}</div>
+              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {replyingTo.content}
+              </div>
+            </div>
+            <button onClick={() => setReplyingTo(null)} className="icon" style={{ padding: '4px' }}><X size={16} /></button>
+          </div>
+        )}
+
+        {/* Edit Bar */}
+        {editingMessage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', padding: '10px 16px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '12px', borderLeft: '4px solid #10b981' }}>
+            <Edit3 size={16} color="#10b981" />
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div style={{ fontSize: '12px', fontWeight: '700', color: '#10b981' }}>Đang chỉnh sửa tin nhắn</div>
+              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {editingMessage.content}
+              </div>
+            </div>
+            <button onClick={() => { setEditingMessage(null); setInputText(''); }} className="icon" style={{ padding: '4px' }}><X size={16} /></button>
+          </div>
+        )}
+
         {/* Inline Image Preview Strip */}
         {imagePreviewUrl && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px', padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '12px' }}>
@@ -705,6 +969,16 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         currentUser={currentUser}
         messages={messages}
         onClose={() => setShowInfoPanel(false)}
+      />
+    )}
+    {showPinnedModal && (
+      <PinnedMessagesModal 
+        pins={pinnedMessages} 
+        onClose={() => setShowPinnedModal(false)}
+        onJumpTo={(msg) => {
+          // Future implementation: Scroll to message
+          setShowPinnedModal(false);
+        }}
       />
     )}
     </div>

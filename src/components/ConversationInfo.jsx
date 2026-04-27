@@ -101,7 +101,11 @@ const ConversationInfo = ({ activeConversation, currentUser, messages = [], onCl
   if (subView === 'media') {
     return (
       <div className="animate-slide-in-right" style={{ width: '340px', minWidth: '340px', height: '100%', borderLeft: '1px solid rgba(255, 255, 255, 0.1)' }}>
-        <MediaList messages={messages} onClose={() => setSubView('main')} />
+        <MediaList 
+          conversationId={activeConversation.id} 
+          currentUser={currentUser} 
+          onClose={() => setSubView('main')} 
+        />
       </div>
     );
   }
