@@ -402,9 +402,9 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
   };
 
   return (
-    <div className="sidebar" style={{ background: 'rgba(15, 23, 42, 0.4)' }}>
+    <div className="sidebar" style={{ background: 'var(--bg-dark)' }}>
       {/* Header */}
-      <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div
             className="avatar"
@@ -421,19 +421,29 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
              )}
           </div>
           <div>
-            <div style={{ fontWeight: '600' }}>{currentUser.displayName}</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>@{currentUser.username}</div>
+            <div style={{ fontWeight: '600', fontSize: '24px' }}>Chats</div>
           </div>
         </div>
     <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              className="icon-btn"
+              title="Đăng xuất"
+              onClick={() => {
+                logout();
+                navigate('/login');
+              }}
+              style={{ background: 'var(--bg-panel)', color: 'var(--text-main)', cursor: 'pointer', borderRadius: '50%', padding: '8px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <LogOut size={20} />
+            </button>
             {currentUser.role === 'ADMIN' && (
               <button
                 className="icon-btn"
                 title="Admin Panel"
                 onClick={() => navigate('/admin')}
-                style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171', cursor: 'pointer', borderRadius: '8px', padding: '6px' }}
+                style={{ background: 'var(--bg-panel)', color: 'var(--text-main)', cursor: 'pointer', borderRadius: '50%', padding: '8px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                <Shield size={18} />
+                <Shield size={20} />
               </button>
             )}
             {(currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && (
@@ -441,36 +451,33 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
                 className="icon-btn"
                 title="Moderation"
                 onClick={() => navigate('/moderation')}
-                style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24', cursor: 'pointer', borderRadius: '8px', padding: '6px' }}
+                style={{ background: 'var(--bg-panel)', color: 'var(--text-main)', cursor: 'pointer', borderRadius: '50%', padding: '8px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                <AlertTriangle size={18} />
+                <AlertTriangle size={20} />
               </button>
             )}
             <button
               className="icon-btn"
               title="Tạo nhóm"
               onClick={openGroupModal}
-              style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', color: '#818cf8', cursor: 'pointer', borderRadius: '8px', padding: '6px' }}
+              style={{ background: 'var(--bg-panel)', color: 'var(--text-main)', cursor: 'pointer', borderRadius: '50%', padding: '8px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              <Users size={18} />
-            </button>
-            <button className="icon-btn" title="Logout" onClick={logout} style={{ background: 'transparent', border:'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-              <LogOut size={20} />
+              <Plus size={20} />
             </button>
         </div>
       </div>
 
       {/* Action / Search */}
-      <div style={{ padding: '16px', display: 'flex', gap: '8px', position: 'relative' }}>
+      <div style={{ padding: '0 16px 16px 16px', display: 'flex', gap: '8px', position: 'relative' }}>
         <div style={{ flex: 1, position: 'relative' }} ref={searchContainerRef}>
-          <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
+          <Search size={16} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
           <input 
             type="text" 
-            placeholder="Search users..." 
+            placeholder="Search Messenger" 
             value={searchQuery}
             onChange={onSearchChange}
             onFocus={() => { if(searchQuery) setShowSearchDropdown(true); }}
-            style={{ width: '100%', paddingLeft: '40px', paddingRight:'12px', paddingBottom:'10px', paddingTop:'10px', fontSize: '14px', borderRadius: '20px' }} 
+            style={{ width: '100%', paddingLeft: '36px', paddingRight:'12px', paddingBottom:'8px', paddingTop:'8px', fontSize: '15px', borderRadius: '24px', background: 'var(--bg-panel)', border: 'none' }} 
           />
           {showSearchDropdown && (
             <div className="search-dropdown-overlay glass animate-fade-in dropdown-menu">
@@ -576,7 +583,7 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
           <div
             className={`conversation-item ${activeConversation?.id && conversations.find(c => c.type === 'PRIVATE' && c.members?.some(m => m.id === botUser.id))?.id === activeConversation?.id ? 'active' : ''}`}
             onClick={startChatWithBot}
-            style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(139,92,246,0.07)', cursor: loadingBot ? 'wait' : 'pointer' }}
+            style={{ background: 'rgba(139,92,246,0.07)', cursor: loadingBot ? 'wait' : 'pointer', borderRadius: '8px', margin: '0 8px 8px 8px' }}
           >
             <div className="avatar-wrapper">
               <div className="avatar" style={{ background: 'linear-gradient(135deg, #8b5cf6, #06b6d4)', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

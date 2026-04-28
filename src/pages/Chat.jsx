@@ -34,6 +34,10 @@ const Chat = () => {
           description: item.description,
           archived: item.archived,
           members: item.members,
+          themeColor: item.themeColor,
+          quickReactionEmoji: item.quickReactionEmoji,
+          readReceiptEnabled: item.readReceiptEnabled,
+          disappearingMessagesSeconds: item.disappearingMessagesSeconds,
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
         }));
@@ -196,6 +200,14 @@ const Chat = () => {
   }, [stompClient, connected, conversations, activeConversation, currentUser.id]);
 
   // Reset unread count when user opens a conversation
+  // Handle conversation settings update
+  const handleConversationUpdate = (updatedConv) => {
+    setConversations(prev => prev.map(c => c.id === updatedConv.id ? { ...c, ...updatedConv } : c));
+    if (activeConversation && activeConversation.id === updatedConv.id) {
+      setActiveConversation(prev => ({ ...prev, ...updatedConv }));
+    }
+  };
+
   const handleSetActiveConversation = (conv) => {
     setActiveConversation(conv);
     if (conv) {
@@ -224,6 +236,7 @@ const Chat = () => {
             connected={connected}
             presenceMap={presenceMap}
             onMessagesChange={setActiveChatMessages}
+            onConversationUpdate={handleConversationUpdate}
           />
         </div>
       </div>

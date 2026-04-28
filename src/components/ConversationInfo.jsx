@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { getConversationName } from '../utils/chatUtils';
 import MediaList from './MediaList';
+import api from '../services/api';
 
 const InfoSection = ({ title, isOpen, onToggle, children }) => {
   return (
@@ -80,7 +81,7 @@ const InfoItem = ({ icon: Icon, label, value, onClick, color }) => {
   );
 };
 
-const ConversationInfo = ({ activeConversation, currentUser, messages = [], onClose }) => {
+const ConversationInfo = ({ activeConversation, currentUser, messages = [], onClose, onShowPins, onConversationUpdate }) => {
   const [subView, setSubView] = useState('main'); // 'main' | 'media' | 'files'
   const [openSections, setOpenSections] = useState({
     chatInfo: true,
@@ -92,6 +93,56 @@ const ConversationInfo = ({ activeConversation, currentUser, messages = [], onCl
   const toggleSection = (section) => {
     setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
+
+  const [saving, setSaving] = useState(false);
+
+  const updateSetting = async (key, value) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const payload = {
+        userId: currentUser.id,
+        [key]: value
+      };
+      const res = await api.put(`/conversations/${activeConversation.id}/settings`, payload);
+      // Backend returns ConversationSettingsResponse
+      onConversationUpdate({
+        id: activeConversation.id,
+        themeColor: res.data.themeColor,
+        quickReactionEmoji: res.data.quickReactionEmoji,
+        readReceiptEnabled: res.data.readReceiptEnabled,
+        disappearingMessagesSeconds: res.data.disappearingMessagesSeconds,
+        name: res.data.name,
+        description: res.data.description,
+        avatarPath: res.data.avatarPath
+      });
+    } catch (err) {
+      console.error("Failed to update settings", err);
+      if (!err.response) {
+        alert("Lỗi kết nối! Spring Boot Backend của bạn có vẻ đang bị tắt. Vui lòng bật lại nhé!");
+      } else {
+        alert(`Cập nhật cài đặt thất bại: ${err.response?.data?.message || err.response?.statusText || ''}`);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const themeColors = [
+    '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', 
+    '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6'
+  ];
+
+  const quickEmojis = ['👍', '❤️', '😂', '😮', '😢', '😡', '🔥', '✨', '✔️', '🙏'];
+
+  const disappearingOptions = [
+    { label: 'Tắt', value: 0 },
+    { label: '5 giây', value: 5 },
+    { label: '10 giây', value: 10 },
+    { label: '1 phút', value: 60 },
+    { label: '1 giờ', value: 3600 },
+    { label: '1 ngày', value: 86400 }
+  ];
 
   const roomName = getConversationName(activeConversation, currentUser);
   const otherMember = activeConversation?.type === 'PRIVATE' 
@@ -193,7 +244,7 @@ const ConversationInfo = ({ activeConversation, currentUser, messages = [], onCl
         isOpen={openSections.chatInfo} 
         onToggle={() => toggleSection('chatInfo')}
       >
-        <InfoItem icon={Pin} label="Xem tin nhắn đã ghim" />
+        <InfoItem icon={Pin} label="Xem tin nhắn đã ghim" onClick={onShowPins} />
       </InfoSection>
 
       <InfoSection 
@@ -201,9 +252,50 @@ const ConversationInfo = ({ activeConversation, currentUser, messages = [], onCl
         isOpen={openSections.customization} 
         onToggle={() => toggleSection('customization')}
       >
-        <InfoItem icon={Palette} label="Đổi chủ đề" color="rgba(168, 85, 247, 0.2)" />
-        <InfoItem icon={Heart} label="Thay đổi biểu tượng cảm xúc" color="rgba(239, 68, 68, 0.2)" />
-        <InfoItem icon={Type} label="Chỉnh sửa biệt danh" />
+        <div style={{ padding: '8px 12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '10px', color: 'rgba(255,255,255,0.6)' }}>Chủ đề</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {themeColors.map(color => (
+              <button 
+                key={color} 
+                onClick={() => updateSetting('themeColor', color)}
+                style={{ 
+                  width: '28px', 
+                  height: '28px', 
+                  borderRadius: '50%', 
+                  background: color, 
+                  border: activeConversation.themeColor === color ? '2px solid white' : '2px solid transparent',
+                  padding: 0
+                }} 
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: '8px 12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '10px', color: 'rgba(255,255,255,0.6)' }}>Biểu tượng cảm xúc nhanh</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {quickEmojis.map(emoji => (
+              <button 
+                key={emoji} 
+                onClick={() => updateSetting('quickReactionEmoji', emoji)}
+                style={{ 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: '8px', 
+                  background: activeConversation.quickReactionEmoji === emoji ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.05)', 
+                  border: activeConversation.quickReactionEmoji === emoji ? '1px solid #3b82f6' : '1px solid transparent',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px'
+                }}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
       </InfoSection>
 
       <InfoSection 
@@ -220,11 +312,46 @@ const ConversationInfo = ({ activeConversation, currentUser, messages = [], onCl
         isOpen={openSections.privacy} 
         onToggle={() => toggleSection('privacy')}
       >
-        <InfoItem icon={BellOff} label="Tắt thông báo" />
-        <InfoItem icon={Shield} label="Quyền nhắn tin" />
-        <InfoItem icon={Clock} label="Tin nhắn tự hủy" />
-        <InfoItem icon={Eye} label="Thông báo đã đọc" value="Tắt" />
-        <InfoItem icon={Lock} label="Xác minh mã hóa đầu cuối" />
+        <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(59, 130, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+              <Eye size={18} />
+            </div>
+            <div style={{ fontSize: '14px', fontWeight: '500' }}>Thông báo đã đọc</div>
+          </div>
+          <input 
+            type="checkbox" 
+            checked={activeConversation.readReceiptEnabled !== false} 
+            onChange={(e) => updateSetting('readReceiptEnabled', e.target.checked)}
+            style={{ width: '40px', height: '20px', cursor: 'pointer' }}
+          />
+        </div>
+
+        <div style={{ padding: '8px 12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
+              <Clock size={18} />
+            </div>
+            <div style={{ fontSize: '14px', fontWeight: '500' }}>Tin nhắn tự hủy</div>
+          </div>
+          <select 
+            value={activeConversation.disappearingMessagesSeconds || 0}
+            onChange={(e) => updateSetting('disappearingMessagesSeconds', parseInt(e.target.value))}
+            style={{ 
+              width: '100%', 
+              background: 'rgba(255,255,255,0.05)', 
+              border: '1px solid rgba(255,255,255,0.1)', 
+              borderRadius: '8px', 
+              color: 'white', 
+              padding: '8px' 
+            }}
+          >
+            {disappearingOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+
         <InfoItem icon={UserMinus} label="Hạn chế" />
         <InfoItem icon={Ban} label="Chặn" />
         <InfoItem icon={AlertCircle} label="Báo cáo" value="Đóng góp ý kiến và báo cáo cuộc trò chuyện" />
