@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, Users, Settings, ArrowLeft, Activity, 
   Zap, Globe, Cpu, HardDrive, BarChart3, Clock, Signal, Lock,
-  Plus, Edit2, Trash2, MoreVertical, AlertTriangle, CheckCircle, XCircle, Search, Eye
+  Plus, Edit2, Trash2, MoreVertical, AlertTriangle, CheckCircle, XCircle, Search, Eye, Radio, FileText, Send
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -35,6 +35,15 @@ const AdminDashboard = () => {
   // AI Policy State
   const [aiPolicy, setAiPolicy] = useState(null);
   const [policyLoading, setPolicyLoading] = useState(false);
+
+  // Audits State
+  const [audits, setAudits] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+
+  // Broadcasts State
+  const [broadcasts, setBroadcasts] = useState([]);
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
 
   useEffect(() => {
     // 1. Measure Ping
@@ -117,10 +126,38 @@ const AdminDashboard = () => {
     }
   };
 
+  // Fetch Audits
+  const fetchAudits = async () => {
+    setAuditLoading(true);
+    try {
+      const res = await api.get('/admin/audits', { params: { limit: 100 } });
+      setAudits(res.data);
+    } catch (err) {
+      console.error('Failed to fetch audits', err);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  // Fetch Broadcasts
+  const fetchBroadcasts = async () => {
+    setBroadcastLoading(true);
+    try {
+      const res = await api.get('/admin/broadcasts');
+      setBroadcasts(res.data);
+    } catch (err) {
+      console.error('Failed to fetch broadcasts', err);
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'User Management') fetchUsers();
     if (activeTab === 'System Config') fetchAiPolicy();
     if (activeTab === 'Moderation') fetchReports();
+    if (activeTab === 'Logs & Audit') fetchAudits();
+    if (activeTab === 'Broadcasts') fetchBroadcasts();
   }, [activeTab]);
 
   const handleLockUser = async (userId, lock) => {
@@ -194,6 +231,42 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleCreateBroadcast = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData.entries());
+    
+    try {
+      await api.post('/admin/broadcasts', data);
+      alert('Broadcast sent successfully');
+      setShowBroadcastModal(false);
+      fetchBroadcasts();
+    } catch (err) {
+      alert('Failed to send broadcast');
+    }
+  };
+
+  const handleDeleteBroadcast = async (broadcastId) => {
+    if (!window.confirm('Are you sure you want to delete this broadcast?')) return;
+    try {
+      await api.delete(`/admin/broadcasts/${broadcastId}`);
+      setBroadcasts(prev => prev.filter(b => b.id !== broadcastId));
+      alert('Broadcast deleted');
+    } catch (err) {
+      alert('Failed to delete broadcast');
+    }
+  };
+
+  const handleTakedownMessage = async (messageId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this message?')) return;
+    try {
+      await api.delete(`/admin/takedown/messages/${messageId}`, { params: { reason: 'Admin moderation takedown' } });
+      alert('Message removed successfully');
+    } catch (err) {
+      alert('Failed to remove message');
+    }
+  };
+
   return (
     <div className="admin-layout" style={{ 
       display: 'flex', 
@@ -223,6 +296,7 @@ const AdminDashboard = () => {
             { icon: BarChart3, label: 'Overview' },
             { icon: Users, label: 'User Management' },
             { icon: ShieldCheck, label: 'Moderation' },
+            { icon: Radio, label: 'Broadcasts' },
             { icon: Settings, label: 'System Config' },
             { icon: Activity, label: 'Logs & Audit' },
           ].map((item, i) => (
@@ -500,6 +574,13 @@ const AdminDashboard = () => {
                             className="btn-success" style={{ flex: 1, padding: '8px', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600' }}>
                             Resolve
                           </button>
+                          {report.messageId && (
+                             <button 
+                               onClick={() => handleTakedownMessage(report.messageId)}
+                               style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', fontSize: '12px', fontWeight: '600' }}>
+                               Takedown Msg
+                             </button>
+                          )}
                           <button 
                             onClick={() => handleUpdateReport(report.id, 'REJECTED', 'Dismissed by admin')}
                             style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', fontSize: '12px', fontWeight: '600' }}>
@@ -516,6 +597,97 @@ const AdminDashboard = () => {
                   ))}
                 </div>
              )}
+          </div>
+        )}
+
+        {activeTab === 'Broadcasts' && (
+          <div style={{ background: '#111827', borderRadius: '24px', border: '1px solid #1f2937', padding: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '24px' }}>
+              <button 
+                onClick={() => setShowBroadcastModal(true)}
+                style={{ 
+                  padding: '12px 24px', 
+                  borderRadius: '12px', 
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)', 
+                  color: 'white',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <Radio size={18} /> New Broadcast
+              </button>
+            </div>
+
+            {broadcastLoading ? <div style={{ textAlign: 'center', padding: '40px' }}>Loading broadcasts...</div> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {broadcasts.length === 0 ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px' }}>No broadcasts found</div> : broadcasts.map(broadcast => (
+                  <div key={broadcast.id} style={{ background: '#1f2937', borderRadius: '16px', border: '1px solid #374151', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Radio size={16} color="#f59e0b" />
+                        {broadcast.title}
+                      </h4>
+                      <p style={{ color: '#e2e8f0', fontSize: '14px', margin: '0 0 12px 0' }}>{broadcast.message}</p>
+                      {broadcast.linkUrl && (
+                        <a href={broadcast.linkUrl} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontSize: '12px', textDecoration: 'none' }}>{broadcast.linkUrl}</a>
+                      )}
+                      <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '12px' }}>
+                        Sent by @{broadcast.createdByUsername} on {new Date(broadcast.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteBroadcast(broadcast.id)}
+                      style={{ padding: '8px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', cursor: 'pointer' }}>
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'Logs & Audit' && (
+          <div style={{ background: '#111827', borderRadius: '24px', border: '1px solid #1f2937', padding: '32px' }}>
+            {auditLoading ? <div style={{ textAlign: 'center', padding: '40px' }}>Loading logs...</div> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #1f2937', color: '#94a3b8', textAlign: 'left' }}>
+                      <th style={{ padding: '16px' }}>Timestamp</th>
+                      <th style={{ padding: '16px' }}>Action</th>
+                      <th style={{ padding: '16px' }}>Actor</th>
+                      <th style={{ padding: '16px' }}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audits.map(audit => (
+                      <tr key={audit.id} style={{ borderBottom: '1px solid #1f2937', transition: 'background 0.2s' }}>
+                        <td style={{ padding: '16px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                          {new Date(audit.createdAt).toLocaleString()}
+                        </td>
+                        <td style={{ padding: '16px' }}>
+                          <span style={{ 
+                            padding: '4px 8px', 
+                            borderRadius: '6px', 
+                            background: 'rgba(16, 185, 129, 0.1)', 
+                            color: '#10b981', 
+                            fontSize: '11px',
+                            fontWeight: '700'
+                          }}>
+                            {audit.action}
+                          </span>
+                        </td>
+                        <td style={{ padding: '16px', fontWeight: '600' }}>@{audit.actorUsername}</td>
+                        <td style={{ padding: '16px', color: '#e2e8f0' }}>{audit.details}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -550,6 +722,13 @@ const AdminDashboard = () => {
           user={selectedUser} 
           onClose={() => setShowUserModal(false)} 
           onSave={handleSaveUser} 
+        />
+      )}
+
+      {showBroadcastModal && (
+        <BroadcastModal
+          onClose={() => setShowBroadcastModal(false)}
+          onSave={handleCreateBroadcast}
         />
       )}
     </div>
@@ -662,3 +841,60 @@ const UserModal = ({ user, onClose, onSave }) => {
 };
 
 export default AdminDashboard;
+
+const BroadcastModal = ({ onClose, onSave }) => (
+  <div style={{ 
+    position: 'fixed', 
+    inset: 0, 
+    background: 'rgba(0, 0, 0, 0.8)', 
+    backdropFilter: 'blur(8px)',
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    zIndex: 1000,
+    padding: '20px'
+  }}>
+    <div style={{ 
+      background: '#111827', 
+      width: '100%', 
+      maxWidth: '500px', 
+      borderRadius: '24px', 
+      border: '1px solid #1f2937', 
+      padding: '32px',
+      position: 'relative',
+      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+    }}>
+      <button onClick={onClose} style={{ position: 'absolute', top: '24px', right: '24px', color: '#94a3b8', background: 'transparent' }}>
+        <XCircle size={24} />
+      </button>
+      
+      <h2 style={{ fontSize: '24px', fontWeight: '800', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Radio size={24} color="#f59e0b" /> New Broadcast
+      </h2>
+
+      <form onSubmit={onSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Title</label>
+          <input name="title" required placeholder="Important Announcement" style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white' }} />
+        </div>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Message</label>
+          <textarea name="message" required rows="4" placeholder="Type your broadcast message here..." style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white', resize: 'vertical' }} />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Link URL (Optional)</label>
+          <input name="linkUrl" placeholder="https://example.com" style={{ background: '#1f2937', border: '1px solid #374151', padding: '10px', borderRadius: '10px', color: 'white' }} />
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+          <button type="button" onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: '12px', background: '#374151', color: 'white', fontWeight: '600' }}>Cancel</button>
+          <button type="submit" style={{ flex: 2, padding: '12px', borderRadius: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', fontWeight: '600', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', border: 'none', cursor: 'pointer' }}>
+            <Send size={18} /> Send Broadcast
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+);
