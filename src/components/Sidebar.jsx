@@ -503,7 +503,7 @@ const Sidebar = ({ conversations, setConversations, activeConversation, setActiv
                        )}
                        {user.relationshipStatus === 'PENDING_OUT' && (
                          <button className="action-btn small" disabled style={{ background: 'var(--bg-panel-hover)'}}>
-                           <Clock size={14} style={{marginRight: '4px'}}/> Đã gửi
+                           <Clock size={14} style={{marginRight: '4px'}}/> Đã gửi lời mời
                          </button>
                        )}
                        {user.relationshipStatus === 'PENDING_IN' && (

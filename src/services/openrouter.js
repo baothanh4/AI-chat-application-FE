@@ -7,15 +7,20 @@ const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // Model mặc định — hoạt động tốt, KHÔNG cần cấu hình privacy
-const DEFAULT_MODEL = 'meta-llama/llama-3.1-8b-instruct:free';
+const DEFAULT_MODEL = 'inclusionai/ring-2.6-1t:free';
 
 // Headers chung cho tất cả request
-const getHeaders = () => ({
-  'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-  'Content-Type': 'application/json',
-  'HTTP-Referer': window.location.origin,
-  'X-Title': 'ChatApplication AI Assistant',
-});
+const getHeaders = () => {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error('VITE_OPENROUTER_API_KEY is missing in .env file');
+  }
+  return {
+    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': window.location.origin,
+    'X-Title': 'ChatApplication AI Assistant',
+  };
+};
 
 // Parse thông điệp lỗi sang tiếng Việt dễ hiểu
 function parseError(data) {
@@ -133,6 +138,13 @@ export async function sendMessageStream(messages, onChunk, onDone, onError, mode
  * Các model không có dấu * hoạt động bình thường.
  */
 export const AVAILABLE_MODELS = [
+  {
+    id: 'inclusionai/ring-2.6-1t:free',
+    name: 'Ring 2.6 1T (User Selection) ✓',
+    provider: 'InclusionAI',
+    recommended: true,
+    free: true,
+  },
   {
     id: 'meta-llama/llama-3.1-8b-instruct:free',
     name: 'Llama 3.1 8B ✓',

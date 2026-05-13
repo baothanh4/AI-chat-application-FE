@@ -4,7 +4,7 @@ import {
   Trash2, Copy, Check, AlertTriangle, Settings2,
   MessageSquare, RotateCcw, Minimize2, Maximize2,
 } from 'lucide-react';
-import { sendMessageStream, AVAILABLE_MODELS } from '../services/openrouter';
+import api from '../services/api';
 
 // ─── Markdown-lite renderer ───────────────────────────────────────
 const renderMarkdown = (text) => {
@@ -127,13 +127,10 @@ const AiChatBot = ({ activeConversation, messages: chatMessages }) => {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
-  const [showModelPicker, setShowModelPicker] = useState(false);
   const [useContext, setUseContext] = useState(true);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
-  const modelPickerRef = useRef(null);
 
   // Build system prompt with optional conversation context
   const buildSystemMessages = useCallback(() => {
@@ -181,23 +178,11 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
     }
   }, [open, minimized]);
 
-  // Close model picker on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target)) {
-        setShowModelPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
   const handleSend = useCallback(async (text) => {
     const userText = (text || input).trim();
     if (!userText || isStreaming) return;
 
     setInput('');
-    setShowModelPicker(false);
 
     // Add user message
     const userMsg = { id: Date.now(), role: 'user', content: userText };
@@ -207,67 +192,35 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
     const assistantId = Date.now() + 1;
     setIsThinking(true);
 
-    // Build conversation history for API
-    const history = messages.map(m => ({ role: m.role, content: m.content }));
-    const systemMsgs = buildSystemMessages();
-    const apiMessages = [...systemMsgs, ...history, { role: 'user', content: userText }];
-
-    let fullContent = '';
+    // Build conversation history for context
+    const history = messages.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
+    const systemMsgs = buildSystemMessages().map(m => m.content).join('\n');
+    const fullPrompt = `${systemMsgs}\n\nLịch sử chat:\n${history}\n\nCâu hỏi mới: ${userText}`;
 
     try {
-      setIsThinking(false);
-      setIsStreaming(true);
+      const response = await api.post('/ai/chat', {
+        prompt: fullPrompt,
+        temperature: 0.7,
+        maxTokens: 1024
+      });
 
-      // Add empty assistant message for streaming
+      setIsThinking(false);
       setMessages(prev => [...prev, {
         id: assistantId,
         role: 'assistant',
-        content: '',
-        streaming: true,
+        content: response.data,
       }]);
-
-      abortRef.current = await sendMessageStream(
-        apiMessages,
-        // onChunk
-        (chunk) => {
-          fullContent += chunk;
-          setMessages(prev => prev.map(m =>
-            m.id === assistantId
-              ? { ...m, content: fullContent }
-              : m
-          ));
-        },
-        // onDone
-        () => {
-          setMessages(prev => prev.map(m =>
-            m.id === assistantId
-              ? { ...m, streaming: false }
-              : m
-          ));
-          setIsStreaming(false);
-        },
-        // onError
-        (err) => {
-          setMessages(prev => prev.map(m =>
-            m.id === assistantId
-              ? { ...m, content: `❌ Lỗi: ${err.message}`, streaming: false, isError: true }
-              : m
-          ));
-          setIsStreaming(false);
-        },
-        selectedModel
-      );
     } catch (err) {
       setIsThinking(false);
-      setIsStreaming(false);
+      const errMsg = err.response?.data || err.message;
       setMessages(prev => [...prev, {
         id: assistantId,
         role: 'assistant',
-        content: `❌ Lỗi kết nối: ${err.message}`,
+        content: `❌ Lỗi: ${errMsg}`,
         isError: true,
       }]);
     }
-  }, [input, isStreaming, messages, buildSystemMessages, selectedModel]);
+  }, [input, isStreaming, messages, buildSystemMessages]);
 
   const handleStop = () => {
     abortRef.current?.abort?.();
@@ -287,8 +240,6 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
       handleSend();
     }
   };
-
-  const selectedModelInfo = AVAILABLE_MODELS.find(m => m.id === selectedModel);
 
   // Unread badge when closed
   const hasNewMessage = !open && messages.length > 0 &&
@@ -323,7 +274,7 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
               <div>
                 <div className="aicb-header-title">AI Assistant</div>
                 <div className="aicb-header-sub">
-                  {selectedModelInfo?.name || 'AI Model'}
+                  Powered by Backend AI
                 </div>
               </div>
             </div>
@@ -350,47 +301,6 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
             <>
               {/* Toolbar */}
               <div className="aicb-toolbar">
-                {/* Model picker */}
-                <div className="aicb-model-picker-wrap" ref={modelPickerRef}>
-                  <button
-                    className="aicb-model-btn"
-                    onClick={() => setShowModelPicker(v => !v)}
-                  >
-                    <Settings2 size={11} />
-                    <span>{selectedModelInfo?.name || 'Model'}</span>
-                    <ChevronDown size={10} className={showModelPicker ? 'rotated' : ''} />
-                  </button>
-                  {showModelPicker && (
-                    <div className="aicb-model-dropdown">
-                      {AVAILABLE_MODELS.map(m => (
-                        <button
-                          key={m.id}
-                          className={`aicb-model-option ${selectedModel === m.id ? 'active' : ''}`}
-                          onClick={() => { setSelectedModel(m.id); setShowModelPicker(false); }}
-                        >
-                          <div>
-                            <div className="aicb-model-name">
-                              {m.name}
-                              {m.recommended && (
-                                <span style={{ marginLeft: 5, fontSize: 9, background: 'rgba(16,185,129,0.2)', color: '#34d399', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>
-                                  ĐỀ XUẤT
-                                </span>
-                              )}
-                            </div>
-                            <div className="aicb-model-provider">
-                              {m.provider}
-                              {m.note && (
-                                <span style={{ marginLeft: 4, color: '#f59e0b' }}>⚠ {m.note}</span>
-                              )}
-                            </div>
-                          </div>
-                          {selectedModel === m.id && <Check size={12} />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 {/* Context toggle */}
                 {chatMessages?.length > 0 && (
                   <button
@@ -455,7 +365,7 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
                   )}
                 </div>
                 <div className="aicb-footer-note">
-                  Powered by <span>OpenRouter</span> · {selectedModelInfo?.provider}
+                  Sử dụng mô hình <span>Ring 2.6 1T</span> qua OpenRouter Backend
                 </div>
               </div>
             </>

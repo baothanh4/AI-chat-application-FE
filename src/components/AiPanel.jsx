@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sparkles, RefreshCw, X, ChevronRight, Clock, AlertTriangle,
   CheckCircle2, ListTodo, BarChart3, MessageSquare, Zap, Target,
-  Calendar, TrendingUp, Brain
+  Calendar, TrendingUp, Brain, Briefcase
 } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 // ─────────────────────────── helpers ────────────────────────────
 const fmt = (iso) => {
@@ -124,6 +125,47 @@ const SummaryTab = ({ insight, loading }) => {
           <Clock size={10} /> Cập nhật lúc {fmtTime(insight.generatedAt)}
         </div>
       )}
+    </div>
+  );
+};
+
+// ─────────────────────────── Work Summary Tab ──────────────────
+const WorkSummaryTab = ({ summary, loading }) => {
+  if (loading) return (
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Skeleton h={18} w="60%" />
+      <Skeleton h={14} w="100%" />
+      <Skeleton h={14} w="100%" />
+      <Skeleton h={14} w="80%" />
+      <Skeleton h={18} w="40%" style={{ marginTop: 12 }} />
+      <Skeleton h={14} w="90%" />
+      <Skeleton h={14} w="95%" />
+    </div>
+  );
+
+  if (!summary) return (
+    <div className="ai-empty-state">
+      <Briefcase size={40} opacity={0.3} />
+      <p>Nhấn <strong>"Tổng hợp CV"</strong> để AI lập báo cáo công việc chi tiết</p>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <div className="ai-summary-box" style={{ background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.1)' }}>
+        <div style={{ 
+          fontSize: 13, 
+          lineHeight: 1.8, 
+          color: 'var(--text-main)', 
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word'
+        }}>
+          {summary}
+        </div>
+      </div>
+      <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Zap size={12} /> Báo cáo được tạo bởi mô hình AI OpenRouter
+      </div>
     </div>
   );
 };
@@ -431,10 +473,13 @@ const GanttTab = ({ tasks, loading }) => {
 const AiPanel = ({ conversationId, onClose, stompClient, connected }) => {
   const [tab, setTab] = useState('summary');
   const [insight, setInsight] = useState(null);
+  const [workSummary, setWorkSummary] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingWork, setLoadingWork] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState(null);
   const [autoUpdated, setAutoUpdated] = useState(false); // badge khi AI tự cập nhật
+  const { currentUser } = useAuth();
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -494,9 +539,41 @@ const AiPanel = ({ conversationId, onClose, stompClient, connected }) => {
     }
   };
 
+  const handleWorkSummary = async () => {
+    if (!conversationId) return;
+    setTab('work');
+    setLoadingWork(true);
+    try {
+      const res = await api.get(`/ai/conversations/${conversationId}/work-summary`);
+      setWorkSummary(res.data);
+      showToast('Đã tổng hợp công việc!', 'success');
+      
+      // Đồng thời gửi tin nhắn thông báo vào chat (optional, but keep for consistency)
+      if (stompClient && connected) {
+        const payload = {
+          conversationId: conversationId,
+          senderId: currentUser.id,
+          content: "tổng hợp công việc",
+          messageType: 'TEXT',
+          clientMessageId: `ai-work-${Date.now()}`
+        };
+        stompClient.publish({
+          destination: '/app/chat.send',
+          body: JSON.stringify(payload)
+        });
+      }
+    } catch (err) {
+      console.error('Failed to get work summary', err);
+      showToast('Không thể tổng hợp công việc!', 'error');
+    } finally {
+      setLoadingWork(false);
+    }
+  };
+
   const tasks = insight?.tasks || [];
   const tabs = [
     { id: 'summary', icon: <Brain size={14} />, label: 'Tóm tắt' },
+    { id: 'work',    icon: <Briefcase size={14} />, label: 'Tổng hợp' },
     { id: 'tasks',   icon: <ListTodo size={14} />, label: `Tasks${tasks.length > 0 ? ` (${tasks.length})` : ''}` },
     { id: 'chart',   icon: <BarChart3 size={14} />, label: 'Biểu đồ' },
   ];
@@ -527,6 +604,15 @@ const AiPanel = ({ conversationId, onClose, stompClient, connected }) => {
               animation: 'fadeIn 0.3s ease',
             }}>✓ Tự cập nhật</span>
           )}
+          <button
+            onClick={handleWorkSummary}
+            className="ai-refresh-btn"
+            style={{ background: 'var(--accent-secondary)', color: 'white' }}
+            title="Tổng hợp công việc bằng AI Chatbot"
+          >
+            <Briefcase size={14} />
+            <span>Tổng hợp CV</span>
+          </button>
           <button
             onClick={handleRefresh}
             disabled={refreshing || loading}
@@ -559,6 +645,7 @@ const AiPanel = ({ conversationId, onClose, stompClient, connected }) => {
       {/* Content */}
       <div className="ai-panel-content">
         {tab === 'summary' && <SummaryTab insight={insight} loading={loading} />}
+        {tab === 'work'    && <WorkSummaryTab summary={workSummary} loading={loadingWork} />}
         {tab === 'tasks'   && <TaskListTab tasks={tasks} loading={loading} />}
         {tab === 'chart'   && <GanttTab tasks={tasks} loading={loading} />}
       </div>

@@ -239,6 +239,7 @@ const Chat = () => {
             onConversationUpdate={handleConversationUpdate}
           />
         </div>
+        <AiChatBot activeConversation={activeConversation} messages={activeChatMessages} />
       </div>
     </CallProvider>
   );
