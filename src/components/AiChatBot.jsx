@@ -3,8 +3,10 @@ import {
   Bot, X, Send, Sparkles, ChevronDown, Loader2,
   Trash2, Copy, Check, AlertTriangle, Settings2,
   MessageSquare, RotateCcw, Minimize2, Maximize2,
+  Clock, Code, Brain
 } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 // ─── Markdown-lite renderer ───────────────────────────────────────
 const renderMarkdown = (text) => {
@@ -83,35 +85,41 @@ const TypingIndicator = () => (
 const WelcomeScreen = ({ onSuggestion, conversationContext }) => {
   const suggestions = conversationContext
     ? [
-        'Tóm tắt cuộc trò chuyện này cho tôi',
-        'Liệt kê các công việc cần làm trong đoạn chat',
-        'Phân tích tâm trạng của cả hai người trong cuộc trò chuyện',
-        'Có deadline nào được đề cập không?',
+        { text: 'Tóm tắt nội dung', icon: <Bot size={14} /> },
+        { text: 'Việc cần làm', icon: <Check size={14} /> },
+        { text: 'Phân tích tâm trạng', icon: <Sparkles size={14} /> },
+        { text: 'Thời gian & Deadline', icon: <Clock size={14} /> },
       ]
     : [
-        'Bạn có thể làm gì cho tôi?',
-        'Viết code React fetch API đơn giản',
-        'Giải thích async/await bằng tiếng Việt',
-        'Đề xuất best practices cho REST API',
+        { text: 'Bạn làm được gì?', icon: <Sparkles size={14} /> },
+        { text: 'Viết code React', icon: <Code size={14} /> },
+        { text: 'Giải thích thuật toán', icon: <Brain size={14} /> },
+        { text: 'Sửa lỗi code', icon: <AlertTriangle size={14} /> },
       ];
 
   return (
     <div className="aicb-welcome">
-      <div className="aicb-welcome-icon">
-        <Sparkles size={28} />
+      <div className="aicb-welcome-icon-wrap">
+        <div className="aicb-welcome-icon">
+          <Sparkles size={32} />
+        </div>
+        <div className="aicb-welcome-glow" />
       </div>
       <h3>AI Assistant</h3>
-      <p>Tôi có thể giúp bạn viết code, phân tích, và trả lời mọi câu hỏi.</p>
+      <p>Trợ lý thông minh sẵn sàng hỗ trợ bạn 24/7</p>
+      
       {conversationContext && (
-        <div className="aicb-context-badge">
-          <MessageSquare size={12} />
-          <span>Đã nạp ngữ cảnh từ cuộc trò chuyện hiện tại</span>
+        <div className="aicb-context-pill">
+          <div className="aicb-pulse-dot" />
+          <span>Đã kết nối với hội thoại hiện tại</span>
         </div>
       )}
-      <div className="aicb-suggestions">
+
+      <div className="aicb-suggestions-grid">
         {suggestions.map((s, i) => (
-          <button key={i} className="aicb-suggestion-btn" onClick={() => onSuggestion(s)}>
-            {s}
+          <button key={i} className="aicb-suggestion-card" onClick={() => onSuggestion(s.text)}>
+            <div className="aicb-sugg-icon">{s.icon}</div>
+            <span>{s.text}</span>
           </button>
         ))}
       </div>
@@ -120,7 +128,14 @@ const WelcomeScreen = ({ onSuggestion, conversationContext }) => {
 };
 
 // ─── Main AiChatBot Component ─────────────────────────────────────
-const AiChatBot = ({ activeConversation, messages: chatMessages }) => {
+const AiChatBot = ({ 
+  activeConversation, 
+  messages: chatMessages, 
+  botConversation,
+  stompClient,
+  connected
+}) => {
+  const { currentUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -131,6 +146,54 @@ const AiChatBot = ({ activeConversation, messages: chatMessages }) => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
+
+  // Sync with persistent conversation if available
+  useEffect(() => {
+    if (!botConversation || !open) return;
+
+    const fetchBotHistory = async () => {
+      try {
+        const res = await api.get(`/messages/conversations/${botConversation.id}/history?page=0&size=50`);
+        const formatted = res.data.messages.map(m => ({
+          id: m.id,
+          role: m.sender.username === 'ai-assistant' ? 'assistant' : 'user',
+          content: m.content,
+          createdAt: m.createdAt
+        }));
+        setMessages(formatted);
+      } catch (err) {
+        console.error("Failed to fetch bot history", err);
+      }
+    };
+
+    fetchBotHistory();
+  }, [botConversation, open]);
+
+  // WebSocket listener for bot conversation
+  useEffect(() => {
+    if (!stompClient || !connected || !botConversation || !open) return;
+
+    const sub = stompClient.subscribe(`/topic/conversations/${botConversation.id}`, (msg) => {
+      const parsed = JSON.parse(msg.body);
+      const isBot = parsed.sender.username === 'ai-assistant';
+      
+      setMessages(prev => {
+        // Prevent duplicates (especially for user messages which are added locally or via WS)
+        if (prev.some(m => m.id === parsed.id)) return prev;
+        
+        return [...prev, {
+          id: parsed.id,
+          role: isBot ? 'assistant' : 'user',
+          content: parsed.content,
+          createdAt: parsed.createdAt
+        }];
+      });
+      
+      if (isBot) setIsThinking(false);
+    });
+
+    return () => sub.unsubscribe();
+  }, [stompClient, connected, botConversation, open]);
 
   // Build system prompt with optional conversation context
   const buildSystemMessages = useCallback(() => {
@@ -171,6 +234,15 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
 
+  // Auto-resize textarea height
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      const scrollHeight = inputRef.current.scrollHeight;
+      inputRef.current.style.height = scrollHeight > 120 ? '120px' : `${scrollHeight}px`;
+    }
+  }, [input]);
+
   // Focus input when opened
   useEffect(() => {
     if (open && !minimized) {
@@ -184,6 +256,30 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
 
     setInput('');
 
+    // If we have a persistent conversation, send through standard chat API
+    if (botConversation) {
+      setIsThinking(true);
+      try {
+        // We add local message immediately for better UX
+        const tempId = Date.now();
+        setMessages(prev => [...prev, { id: tempId, role: 'user', content: userText }]);
+
+        await api.post('/messages', {
+          conversationId: botConversation.id,
+          senderId: currentUser.id,
+          content: userText,
+          messageType: 'TEXT',
+          clientMessageId: `ai-sync-${tempId}`
+        });
+        // The bot's reply will come back via WebSocket
+      } catch (err) {
+        setIsThinking(false);
+        setMessages(prev => [...prev, { id: Date.now(), role: 'assistant', content: `❌ Lỗi: ${err.message}`, isError: true }]);
+      }
+      return;
+    }
+
+    // Fallback: direct AI chat (no persistence)
     // Add user message
     const userMsg = { id: Date.now(), role: 'user', content: userText };
     setMessages(prev => [...prev, userMsg]);
@@ -220,7 +316,7 @@ Khi viết code, luôn dùng markdown code blocks. Luôn ưu tiên trả lời b
         isError: true,
       }]);
     }
-  }, [input, isStreaming, messages, buildSystemMessages]);
+  }, [input, isStreaming, messages, buildSystemMessages, botConversation, currentUser.id]);
 
   const handleStop = () => {
     abortRef.current?.abort?.();

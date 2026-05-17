@@ -12,9 +12,92 @@ import { getConversationName, formatLastSeen, formatDateDivider, isDifferentDay,
 import AiPanel from './AiPanel';
 import ConversationInfo from './ConversationInfo';
 import PinnedMessagesModal from './PinnedMessagesModal';
+import ChatChart from './ChatChart';
 import { useCall } from '../context/CallContext';
 
 
+
+// ─── Markdown-lite renderer ───────────────────────────────────────
+const renderMarkdown = (text) => {
+  try {
+    if (!text) return '';
+    // Escape HTML to prevent XSS
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Bold **text**
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // Italic *text*
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    // Inline code `code`
+    html = html.replace(/`([^`]+)`/g, '<code style="background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">$1</code>');
+    // Code blocks ```lang\n...\n```
+    html = html.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; margin: 8px 0; overflow-x: auto;"><code style="font-family: monospace; font-size: 0.9em; white-space: pre-wrap;">$1</code></pre>');
+    // Line breaks
+    html = html.replace(/\n/g, '<br />');
+    
+    // Tables | col | col |
+    if (html.includes('|')) {
+      const lines = html.split('<br />');
+      let finalHtml = '';
+      let tableRows = [];
+      let inTable = false;
+
+      const flushTable = () => {
+        if (tableRows.length > 0) {
+          finalHtml += `<div class="chat-table-container"><table>${tableRows.join('')}</table></div>`;
+          tableRows = [];
+        }
+        inTable = false;
+      };
+
+      lines.forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+          if (trimmed.includes('---')) return; // Skip divider lines
+          
+          const cells = trimmed.split('|').filter((c, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
+          if (cells.length > 0) {
+            const isHeader = !inTable;
+            inTable = true;
+            const tag = isHeader ? 'th' : 'td';
+            let row = '<tr>';
+            cells.forEach(cell => {
+              // Simple Bar Chart Logic for numeric cells
+              let barHtml = '';
+              const numMatch = cell.match(/\d+(\.\d+)?/);
+              if (!isHeader && numMatch && !cell.includes('/')) {
+                const val = parseFloat(numMatch[0]);
+                const width = Math.min((val / 100) * 100, 100);
+                if (width > 0 && width < 100) {
+                  barHtml = `<div class="table-bar" style="width: ${width}%"></div>`;
+                }
+              }
+              row += `<${tag}>${cell}${barHtml}</${tag}>`;
+            });
+            row += '</tr>';
+            tableRows.push(row);
+          } else {
+            flushTable();
+            finalHtml += line + '<br />';
+          }
+        } else {
+          flushTable();
+          finalHtml += line + '<br />';
+        }
+      });
+      flushTable();
+      html = finalHtml;
+    }
+
+    return html;
+  } catch (err) {
+    console.error("Markdown render error", err);
+    return text; // Fallback to plain text
+  }
+};
 
 const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = {}, onNewAiInsight, onMessagesChange, onConversationUpdate }) => {
   const { currentUser } = useAuth();
@@ -25,6 +108,17 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
   const subscriptionRef = useRef(null);
   const fileInputRef = useRef(null);
   const { startCall } = useCall();
+
+  const scrollToMessage = (msgId) => {
+    const element = document.getElementById(`message-${msgId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      element.classList.add('highlight-message');
+      setTimeout(() => element.classList.remove('highlight-message'), 2000);
+    } else {
+      console.warn(`Message ${msgId} not found in DOM`);
+    }
+  };
 
   // Side Panel state
   const [showAiPanel, setShowAiPanel] = useState(false);
@@ -65,6 +159,8 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
 
     const loadHistory = async () => {
       setMessages([]); // Clear stale messages from the previous conversation!
+      setReplyingTo(null);
+      setEditingMessage(null);
       setLoading(true);
       try {
         // Mark conversation as read first (resets unread count on backend)
@@ -85,14 +181,14 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
       }
     };
     loadHistory();
-  }, [activeConversation]);
+  }, [activeConversation?.id]);
 
   // activeChatIdRef is needed because the WebSocket subscription callback is a closure.
   // It will "remember" the old activeConversation.id and bypass our guard if we switch chats quickly!
   const activeChatIdRef = useRef(activeConversation?.id);
   useEffect(() => {
     activeChatIdRef.current = activeConversation?.id;
-  }, [activeConversation]);
+  }, [activeConversation?.id]);
 
   // Handle Websocket Subscription
   useEffect(() => {
@@ -146,15 +242,14 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         mutationSub.unsubscribe();
         pinSub.unsubscribe();
     };
-  }, [connected, stompClient, activeConversation]);
+  }, [connected, stompClient, activeConversation?.id]);
 
   // Initial fetch for pinned messages
   useEffect(() => {
-    if (!activeConversation || !currentUser) return;
     api.get(`/messages/conversations/${activeConversation.id}/pinned`, { params: { actorUserId: currentUser.id } })
        .then(res => setPinnedMessages(res.data))
        .catch(err => console.error("Failed to fetch pins", err));
-  }, [activeConversation, currentUser]);
+  }, [activeConversation?.id, currentUser]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -176,7 +271,15 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
   }, [imagePreviewUrl]);
 
   const handleSend = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    
+    // 1. If there's an image/video selected, send it first (or alone)
+    if (selectedImage) {
+      await handleSendImage();
+      // If there's also text, we continue to send the text as a separate message
+      if (!inputText.trim()) return;
+    }
+
     if (!inputText.trim() || !stompClient || !activeConversation) return;
     if (!connected) {
       alert("Mất kết nối tới server!");
@@ -243,6 +346,35 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
     } catch (err) {
       alert("Gửi tin nhắn thất bại!");
     }
+  };
+
+  const sendQuickEmoji = async (emoji) => {
+    if (!stompClient || !activeConversation || !connected) return;
+
+    const clientMessageId = `msg-${Date.now()}`;
+    const payload = {
+      conversationId: activeConversation.id,
+      senderId: currentUser.id,
+      content: emoji,
+      messageType: 'TEXT',
+      clientMessageId
+    };
+
+    stompClient.publish({
+      destination: '/app/chat.send',
+      body: JSON.stringify(payload)
+    });
+
+    // Optimistic UI
+    setMessages(prev => [...prev, {
+      id: clientMessageId,
+      content: emoji,
+      sender: currentUser,
+      clientMessageId,
+      type: 'TEXT',
+      messageType: 'TEXT',
+      createdAt: new Date().toISOString()
+    }]);
   };
 
   // Message Mutation Actions
@@ -514,7 +646,41 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
       }
     }
 
-    return msg.content;
+    // Safety check for content
+    if (!msg.content) return null;
+
+    // Split content into text and chart blocks
+    const parts = msg.content.split(/(\[CHART\][\s\S]*?\[\/CHART\])/);
+    
+    return (
+      <div className="message-text-content">
+        {parts.map((part, i) => {
+          if (part.startsWith('[CHART]') && part.endsWith('[/CHART]')) {
+            try {
+              const jsonStr = part.replace('[CHART]', '').replace('[/CHART]', '').trim();
+              const chartConfig = JSON.parse(jsonStr);
+              return (
+                <ChatChart 
+                  key={i}
+                  type={chartConfig.type} 
+                  data={chartConfig.data} 
+                  title={chartConfig.title} 
+                />
+              );
+            } catch (err) {
+              console.error("Failed to parse chart JSON", err);
+              return <div key={i} style={{ color: 'var(--error)', fontSize: '12px' }}>[Lỗi hiển thị biểu đồ]</div>;
+            }
+          }
+          return (
+            <div 
+              key={i}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(part) }} 
+            />
+          );
+        })}
+      </div>
+    );
   };
 
   if (!activeConversation) {
@@ -635,16 +801,19 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
       )}
 
       {/* Messages Window */}
-      <div style={{ 
-        flex: 1, 
-        padding: '20px', 
-        overflowY: 'auto', 
-        display: 'flex', 
-        flexDirection: 'column',
-        background: activeConversation?.themeColor 
-          ? `linear-gradient(to bottom, var(--bg-dark) 0%, ${activeConversation.themeColor}15 100%)` 
-          : 'var(--bg-dark)',
-      }}>
+      <div 
+        key={activeConversation?.id}
+        style={{ 
+          flex: 1, 
+          padding: '20px', 
+          overflowY: 'auto', 
+          display: 'flex', 
+          flexDirection: 'column',
+          background: activeConversation?.themeColor 
+            ? `linear-gradient(to bottom, var(--bg-dark) 0%, ${activeConversation.themeColor}15 100%)` 
+            : 'var(--bg-dark)',
+        }}
+      >
         {loading ? (
             <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '20px' }}>Loading...</div>
         ) : messages.length === 0 ? (
@@ -690,7 +859,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
                          </span>
                        </div>
                      )}
-                     <div id={`message-${msg.id}`} className="animate-fade-in" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom: '16px', gap: '8px' }}>
+                     <div id={`message-${msg.id}`} className="animate-fade-in" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom: (msg.reactions && msg.reactions.length > 0) ? '24px' : '16px', gap: '8px' }}>
                         {!isMe && (
                             <div className="avatar" style={{ width: '28px', height: '28px', padding: 0, overflow: 'hidden', flexShrink: 0 }}>
                                {msg.sender?.avatarPath ? (
@@ -710,17 +879,21 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
 
                             {/* Reply Preview in Bubble */}
                             {msg.replyToMessageId && (
-                              <div style={{ 
+                              <div 
+                               onClick={() => scrollToMessage(msg.replyToMessageId)}
+                               style={{ 
                                 background: 'rgba(255,255,255,0.05)', 
                                 padding: '8px 12px', 
                                 borderRadius: '12px', 
                                 borderLeft: '3px solid #3b82f6',
-                                marginBottom: '-8px',
-                                paddingBottom: '16px',
+                                marginBottom: '-12px',
+                                paddingBottom: '20px',
                                 fontSize: '12px',
                                 opacity: 0.8,
-                                maxWidth: '100%'
-                              }}>
+                                maxWidth: '100%',
+                                cursor: 'pointer'
+                               }}
+                              >
                                 <div style={{ fontWeight: '700', color: '#3b82f6', marginBottom: '2px' }}>
                                   Đang trả lời {(() => {
                                     const repliedMsg = messages.find(m => m.id === msg.replyToMessageId);
@@ -773,6 +946,39 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
                                        <div style={{ fontStyle: 'italic', opacity: 0.5 }}>Tin nhắn đã bị xóa</div>
                                      ) : renderMessageContent(msg)}
                                    </div>
+
+                                   {/* Reactions removed here and moved to bubble above */}
+                                   {msg.reactions && msg.reactions.length > 0 && (
+                                     <div style={{ 
+                                       position: 'absolute',
+                                       bottom: '-16px',
+                                       [isMe ? 'left' : 'right']: '4px',
+                                       display: 'flex', 
+                                       gap: '4px', 
+                                       zIndex: 15
+                                     }}>
+                                       {msg.reactions.map(r => (
+                                         <div key={r.emoji} 
+                                           onClick={() => r.userIds.includes(currentUser.id) ? handleRemoveReaction(msg.id) : handleReactMessage(msg.id, r.emoji)}
+                                           style={{ 
+                                             background: r.userIds.includes(currentUser.id) ? '#3b82f6' : 'rgba(255,255,255,0.15)', 
+                                             border: '2px solid var(--bg-dark)',
+                                             padding: '2px 8px', 
+                                             borderRadius: '20px', 
+                                             fontSize: '11px',
+                                             display: 'flex',
+                                             alignItems: 'center',
+                                             gap: '4px',
+                                             cursor: 'pointer',
+                                             boxShadow: '0 4px 6px -1px rgba(0,0,0,0.3)',
+                                             color: 'white'
+                                           }}>
+                                           <span>{r.emoji}</span>
+                                           <span style={{ fontWeight: '700' }}>{r.count}</span>
+                                         </div>
+                                       ))}
+                                     </div>
+                                   )}
 
                                    {/* Quick Actions (Hover) */}
                                    {!msg.unsent && !msg.deletedForEveryone && (
@@ -835,37 +1041,6 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
                                );
                             })()}
 
-                            {/* Reactions Display */}
-                            {msg.reactions && msg.reactions.length > 0 && (
-                              <div style={{ 
-                                display: 'flex', 
-                                gap: '4px', 
-                                marginTop: '-10px', 
-                                zIndex: 5,
-                                alignSelf: isMe ? 'flex-end' : 'flex-start',
-                                marginLeft: isMe ? 0 : '8px',
-                                marginRight: isMe ? '8px' : 0
-                              }}>
-                                {msg.reactions.map(r => (
-                                  <div key={r.emoji} 
-                                    onClick={() => r.userIds.includes(currentUser.id) ? handleRemoveReaction(msg.id) : handleReactMessage(msg.id, r.emoji)}
-                                    style={{ 
-                                      background: r.userIds.includes(currentUser.id) ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.1)', 
-                                      border: r.userIds.includes(currentUser.id) ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
-                                      padding: '2px 6px', 
-                                      borderRadius: '12px', 
-                                      fontSize: '11px',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      cursor: 'pointer'
-                                    }}>
-                                    <span>{r.emoji}</span>
-                                    <span style={{ fontWeight: '700' }}>{r.count}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
 
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', paddingLeft: '4px', paddingRight: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                {formatTime(msg.createdAt)}
@@ -910,7 +1085,12 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <div style={{ fontSize: '12px', fontWeight: '700', color: '#3b82f6' }}>Đang trả lời @{replyingTo.sender.username}</div>
               <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {replyingTo.content}
+                {(() => {
+                  if (replyingTo.messageType === 'IMAGE') return '[Hình ảnh]';
+                  if (replyingTo.messageType === 'VIDEO') return '[Video]';
+                  if (replyingTo.messageType === 'FILE') return '[Tập tin]';
+                  return replyingTo.content;
+                })()}
               </div>
             </div>
             <button onClick={() => setReplyingTo(null)} className="icon" style={{ padding: '4px' }}><X size={16} /></button>
@@ -1006,6 +1186,12 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
               value={inputText}
               onChange={e => setInputText(e.target.value)}
               onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  // If we have an image, handleSend will call handleSendImage
+                  handleSend(e);
+                }
+              }}
               placeholder="Aa" 
               style={{ width: '100%', paddingLeft: '16px', paddingRight: '44px', paddingBottom: '10px', paddingTop: '10px', borderRadius: '24px', background: 'transparent', border: 'none', color: 'var(--text-main)', fontSize: '15px' }} 
             />
@@ -1014,7 +1200,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
             </button>
           </div>
 
-          {inputText.trim() ? (
+          {inputText.trim() || selectedImage ? (
             <button type="submit" className="icon" title="Gửi" style={{ color: activeConversation.themeColor || 'var(--accent-primary)', padding: '6px' }}>
               <Send size={22} />
             </button>
@@ -1022,9 +1208,9 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
             <button 
               type="button"
               className="icon"
-              onClick={() => handleReactMessage(messages[messages.length - 1]?.id, activeConversation.quickReactionEmoji || '👍')}
+              onClick={() => sendQuickEmoji(activeConversation.quickReactionEmoji || '👍')}
               style={{ fontSize: '24px', padding: '4px', cursor: 'pointer', background: 'transparent', border: 'none' }}
-              title="Thả cảm xúc nhanh"
+              title="Gửi biểu tượng nhanh"
             >
               {activeConversation.quickReactionEmoji || '👍'}
             </button>
@@ -1060,14 +1246,7 @@ const ChatWindow = ({ activeConversation, stompClient, connected, presenceMap = 
         onClose={() => setShowPinnedModal(false)}
         onJumpTo={(msg) => {
           setShowPinnedModal(false);
-          const element = document.getElementById(`message-${msg.id}`);
-          if (element) {
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            element.classList.add('highlight-message');
-            setTimeout(() => element.classList.remove('highlight-message'), 2000);
-          } else {
-            alert("Tin nhắn này ở quá xa, vui lòng cuộn lên để tìm.");
-          }
+          scrollToMessage(msg.id);
         }}
       />
     )}

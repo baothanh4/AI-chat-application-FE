@@ -18,6 +18,7 @@ const Chat = () => {
   const [lastMessageMap, setLastMessageMap] = useState({}); // { [convId]: message }
   const [unreadMap, setUnreadMap] = useState({}); // { [convId]: count }
   const [activeChatMessages, setActiveChatMessages] = useState([]); // For AI context
+  const [botConversation, setBotConversation] = useState(null);
 
   useEffect(() => {
     // Fetch user's conversations inbox (includes last message + unread count)
@@ -58,6 +59,17 @@ const Chat = () => {
     };
     fetchInbox();
   }, [currentUser.id]);
+
+  // Identify the AI Bot conversation (private chat with 'ai-assistant')
+  useEffect(() => {
+    if (conversations.length > 0) {
+      const botConv = conversations.find(c => 
+        c.type === 'PRIVATE' && 
+        c.members?.some(m => m.username === 'ai-assistant')
+      );
+      if (botConv) setBotConversation(botConv);
+    }
+  }, [conversations]);
 
   // Heartbeat: mark current user online every 60 seconds
   useEffect(() => {
@@ -239,8 +251,8 @@ const Chat = () => {
             onConversationUpdate={handleConversationUpdate}
           />
         </div>
-        <AiChatBot activeConversation={activeConversation} messages={activeChatMessages} />
       </div>
+
     </CallProvider>
   );
 };
